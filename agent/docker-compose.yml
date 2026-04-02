@@ -1,0 +1,39 @@
+version: '3.9'
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - '27017:27017'
+
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - mongo
+    env_file:
+      - ./agent/.env
+    environment:
+      MONGO_URI: mongodb://mongo:27017/trading-agent
+    ports:
+      - '3001:3001'
+    volumes:
+      - ./agent/exports:/app/exports
+
+  dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - agent
+    ports:
+      - '3000:80'
+
+volumes:
+  mongo_data:

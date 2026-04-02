@@ -1,0 +1,59 @@
+# Trading Agent
+
+AI-powered crypto paper trading agent using Claude + Alpaca Paper API.
+Logs every decision to MongoDB, resolves outcomes automatically, and exports profitable trades as a fine-tuning dataset.
+
+## Stack
+- **Agent**: Node.js + TypeScript
+- **LLM**: Claude API (swap to Ollama after fine-tuning)
+- **Paper trading**: Alpaca Paper API
+- **Database**: MongoDB
+- **Dashboard**: React + TypeScript
+- **Training**: Google Colab + Unsloth QLoRA
+
+## Quick start
+
+```bash
+# 1. Copy env and fill in your keys
+cp agent/.env.example agent/.env
+
+# 2. Start everything
+docker compose up -d
+
+# 3. Dashboard
+open http://localhost:3000
+
+# 4. Agent API
+curl http://localhost:3001/api/stats
+```
+
+## Agent API
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/trades` | All trade decisions |
+| `GET /api/trades/pending` | Awaiting human approval |
+| `GET /api/stats` | Win rate, P&L, dataset size |
+| `POST /api/trades/:id/approve` | Approve + execute order |
+| `POST /api/trades/:id/reject` | Dismiss without executing |
+| `POST /api/dataset/export` | Export JSONL for training |
+
+## Training pipeline
+
+1. Let the agent run for several weeks to accumulate data
+2. Click **Export dataset** in the dashboard
+3. Upload `exports/dataset_*.jsonl` to Google Colab
+4. Run `training/finetune.ipynb`
+5. Download the exported GGUF model
+6. Drop it into Ollama on your Proxmox server
+7. Set `LLM_PROVIDER=ollama` in `.env` and restart
+
+## Switching to local model
+
+```env
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://your-proxmox-ip:11434
+OLLAMA_MODEL=trading-llm
+```
+
+No code changes needed — the agent calls the same interface.

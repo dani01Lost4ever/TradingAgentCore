@@ -1,0 +1,65 @@
+:root {
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+
+  /* Backgrounds */
+  --bg1: #0d0f14;
+  --bg2: #12151c;
+  --bg3: #181c26;
+
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.07);
+  --border2: rgba(255, 255, 255, 0.12);
+
+  /* Text */
+  --text: #e2e8f0;
+  --muted: #64748b;
+
+  /* Accents */
+  --accent: #00d4aa;
+  --accent2: #818cf8;
+
+  /* Status */
+  --green: #22c55e;
+  --danger: #ff4d6d;
+  --warn: #f59e0b;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg1);
+  color: var(--text);
+  font-family: var(--font-sans);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  border: none;
+  background: none;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
