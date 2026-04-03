@@ -1,35 +1,162 @@
-:root {
+/* ─── Default (Dark) theme ─────────────────────────────────────────────────── */
+:root,
+[data-theme="dark"] {
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
   --font-sans: 'Inter', system-ui, sans-serif;
-
-  /* Backgrounds */
   --bg1: #0d0f14;
   --bg2: #12151c;
   --bg3: #181c26;
-
-  /* Borders */
   --border: rgba(255, 255, 255, 0.07);
   --border2: rgba(255, 255, 255, 0.12);
-
-  /* Text */
   --text: #e2e8f0;
   --muted: #64748b;
-
-  /* Accents */
   --accent: #00d4aa;
   --accent2: #818cf8;
-
-  /* Status */
   --green: #22c55e;
   --danger: #ff4d6d;
   --warn: #f59e0b;
+  --nav-bg: #0a0c10;
+  --nav-border: rgba(255,255,255,0.07);
+  --scrollbar-thumb: #2a2f3e;
 }
 
+/* ─── Light theme ──────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --bg1: #f1f5f9;
+  --bg2: #ffffff;
+  --bg3: #f8fafc;
+  --border: rgba(0, 0, 0, 0.08);
+  --border2: rgba(0, 0, 0, 0.15);
+  --text: #0f172a;
+  --muted: #94a3b8;
+  --accent: #0ea5e9;
+  --accent2: #8b5cf6;
+  --green: #16a34a;
+  --danger: #dc2626;
+  --warn: #d97706;
+  --nav-bg: #ffffff;
+  --nav-border: rgba(0,0,0,0.08);
+  --scrollbar-thumb: #cbd5e1;
+}
+
+/* ─── Matrix theme ─────────────────────────────────────────────────────────── */
+[data-theme="matrix"] {
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+  --font-sans: 'JetBrains Mono', 'Fira Code', monospace;
+  --bg1: #000000;
+  --bg2: #050a05;
+  --bg3: #0a120a;
+  --border: rgba(0, 255, 65, 0.12);
+  --border2: rgba(0, 255, 65, 0.22);
+  --text: #00ff41;
+  --muted: #006620;
+  --accent: #00ff41;
+  --accent2: #00cc33;
+  --green: #00ff41;
+  --danger: #ff2200;
+  --warn: #ffcc00;
+  --nav-bg: #000000;
+  --nav-border: rgba(0, 255, 65, 0.15);
+  --scrollbar-thumb: #003311;
+}
+
+/* ─── Midnight theme ───────────────────────────────────────────────────────── */
+[data-theme="midnight"] {
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --bg1: #07071a;
+  --bg2: #0d0d2b;
+  --bg3: #12123a;
+  --border: rgba(139, 92, 246, 0.15);
+  --border2: rgba(139, 92, 246, 0.28);
+  --text: #e2d9f3;
+  --muted: #6b5b95;
+  --accent: #a78bfa;
+  --accent2: #f472b6;
+  --green: #34d399;
+  --danger: #f87171;
+  --warn: #fbbf24;
+  --nav-bg: #05051a;
+  --nav-border: rgba(139, 92, 246, 0.18);
+  --scrollbar-thumb: #2d1f5e;
+}
+
+/* ─── Solarized theme ──────────────────────────────────────────────────────── */
+/*  Palette: Ethan Schoonover's Solarized (light variant base)                 */
+[data-theme="solarized"] {
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --bg1: #fdf6e3;   /* base3  – main background  */
+  --bg2: #eee8d5;   /* base2  – card background  */
+  --bg3: #e0dac8;   /* base1  – slightly deeper  */
+  --border:  rgba(101, 123, 131, 0.18);
+  --border2: rgba(101, 123, 131, 0.32);
+  --text:  #073642;  /* base02 – primary text     */
+  --muted: #93a1a1;  /* base1  – secondary text   */
+  --accent:  #268bd2; /* blue   */
+  --accent2: #2aa198; /* cyan   */
+  --green:   #859900; /* green  */
+  --danger:  #dc322f; /* red    */
+  --warn:    #cb4b16; /* orange */
+  --nav-bg:    #eee8d5;
+  --nav-border: rgba(101, 123, 131, 0.2);
+  --scrollbar-thumb: #cdc7b5;
+}
+
+/* ─── Nord theme ───────────────────────────────────────────────────────────── */
+/*  Palette: Arctic Ice Studio "Nord"                                           */
+[data-theme="nord"] {
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --bg1: #2e3440;   /* nord0  */
+  --bg2: #3b4252;   /* nord1  */
+  --bg3: #434c5e;   /* nord2  */
+  --border:  rgba(216, 222, 233, 0.10);
+  --border2: rgba(216, 222, 233, 0.20);
+  --text:  #eceff4;  /* nord6  */
+  --muted: #7b88a1;  /* between nord3 & nord4 */
+  --accent:  #88c0d0; /* nord8  – frost light blue */
+  --accent2: #81a1c1; /* nord9  – frost blue       */
+  --green:   #a3be8c; /* nord14 – aurora green     */
+  --danger:  #bf616a; /* nord11 – aurora red       */
+  --warn:    #ebcb8b; /* nord13 – aurora yellow    */
+  --nav-bg:    #252a33;
+  --nav-border: rgba(216, 222, 233, 0.10);
+  --scrollbar-thumb: #4c566a;
+}
+
+/* ─── Gruvbox theme ────────────────────────────────────────────────────────── */
+/*  Palette: morhetz/gruvbox (dark hard variant)                               */
+[data-theme="gruvbox"] {
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Menlo', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --bg1: #1d2021;   /* dark hard bg  */
+  --bg2: #282828;   /* bg0           */
+  --bg3: #32302f;   /* bg1           */
+  --border:  rgba(168, 153, 132, 0.14);
+  --border2: rgba(168, 153, 132, 0.26);
+  --text:  #ebdbb2;  /* fg1  */
+  --muted: #7c6f64;  /* bg4  */
+  --accent:  #fabd2f; /* yellow bright */
+  --accent2: #fe8019; /* orange bright */
+  --green:   #b8bb26; /* green bright  */
+  --danger:  #fb4934; /* red bright    */
+  --warn:    #fe8019; /* orange bright */
+  --nav-bg:    #1d2021;
+  --nav-border: rgba(168, 153, 132, 0.14);
+  --scrollbar-thumb: #3c3836;
+}
+
+/* ─── Reset & base ─────────────────────────────────────────────────────────── */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
+
+html { height: 100%; }
 
 body {
   background: var(--bg1);
@@ -54,12 +181,22 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* ─── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb, #2a2f3e); border-radius: 3px; }
+
+/* ─── Animations ───────────────────────────────────────────────────────────── */
 @keyframes pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+  50%       { opacity: 0.4; }
 }
 
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }

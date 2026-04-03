@@ -1,50 +1,138 @@
-import 'dotenv/config'
+import { config } from 'dotenv'
+import { join } from 'path'
+config({ path: join(__dirname, '../../.env') })
 import { patchConsole } from './logs'
 patchConsole()
 import cron from 'node-cron'
+import { createServer } from 'http'
 import { connectDB } from './logger'
-import { fetchPortfolio, fetchMarketSnapshot } from './poller'
-import { getDecision } from './brain'
+import { fetchPortfolio, fetchMarketSnapshot, fetchLatestPrices } from './poller'
+import { getDecisions } from './brain'
 import { logDecision, markExecuted, resolveOutcomes } from './logger'
 import { executeOrder } from './executor'
-import { getConfig } from './config'
+import { getConfig, initConfig } from './config'
 import { createApiServer } from './api'
+import { TradeModel } from './schema'
+import { getRiskStatus, recordEquitySnapshot, monitorStopLossTakeProfit } from './risk'
+import { fetchFearAndGreed, fetchNewsHeadlines } from './sentiment'
+import { initWebSocket, broadcast } from './ws'
+import type { AssetSnapshot } from './schema'
 
-const ASSETS = (process.env.ASSETS || 'BTC/USD,ETH/USD').split(',')
 const MAX_POSITION_USD = parseFloat(process.env.MAX_POSITION_USD || '500')
-const POLL_MINUTES = parseInt(process.env.POLL_INTERVAL_MINUTES || '15')
 const API_PORT = parseInt(process.env.API_PORT || '3001')
 
+// Rolling list of recently traded assets — passed to the LLM to encourage diversification
+let recentAssets: string[] = []
+
+function detectRegime(market: Record<string, AssetSnapshot>): string {
+  const btc = market['BTC/USD']
+  if (!btc?.daily_sma50) return 'Unknown'
+  const pctFromSma50 = ((btc.price - btc.daily_sma50) / btc.daily_sma50) * 100
+  if (pctFromSma50 > 5) return 'Bull Market (BTC +' + pctFromSma50.toFixed(1) + '% above SMA50)'
+  if (pctFromSma50 < -10) return 'Bear Market (BTC ' + pctFromSma50.toFixed(1) + '% below SMA50)'
+  return 'Sideways (BTC ' + (pctFromSma50 >= 0 ? '+' : '') + pctFromSma50.toFixed(1) + '% vs SMA50)'
+}
+
 async function runAgentCycle(): Promise<void> {
-  console.log('\n[agent] ── Starting cycle', new Date().toISOString())
+  console.log('\n[agent] Starting cycle', new Date().toISOString())
 
   try {
     const [portfolio, market] = await Promise.all([
       fetchPortfolio(),
-      fetchMarketSnapshot(ASSETS),
+      fetchMarketSnapshot(getConfig().assets),
     ])
 
+    // Broadcast portfolio update
+    broadcast('portfolio', { cash: portfolio.cash_usd, equity: portfolio.equity_usd })
+
     console.log(`[agent] Portfolio: $${portfolio.cash_usd.toFixed(2)} cash, equity $${portfolio.equity_usd.toFixed(2)}`)
-    for (const [asset, snap] of Object.entries(market)) {
-      console.log(`[agent] ${asset}: $${snap.price.toLocaleString()} (${snap.change_24h}% 24h, RSI ${snap.rsi_14})`)
+
+    // Circuit breaker check
+    const riskStatus = await getRiskStatus(getConfig() as any, portfolio.equity_usd)
+    if (riskStatus.circuitBreakerActive) {
+      console.warn(`[agent] CIRCUIT BREAKER ACTIVE — ${riskStatus.circuitBreakerReason}`)
+      await recordEquitySnapshot(portfolio)
+      return
     }
 
-    const decision = await getDecision(market, portfolio, MAX_POSITION_USD)
-    console.log(`[agent] Decision: ${decision.action.toUpperCase()} ${decision.asset} $${decision.amount_usd} (confidence: ${decision.confidence})`)
-    console.log(`[agent] Reasoning: ${decision.reasoning}`)
+    for (const [asset, snap] of Object.entries(market)) {
+      const trend = snap.ema_9 != null && snap.ema_21 != null
+        ? (snap.ema_9 > snap.ema_21 ? 'bullish' : 'bearish')
+        : 'trend N/A'
+      const macdStr = snap.macd_hist != null
+        ? `MACD hist ${snap.macd_hist > 0 ? '+' : ''}${snap.macd_hist.toFixed(4)}`
+        : 'MACD N/A'
+      const bbStr = snap.bb_pct != null
+        ? `BB% ${(snap.bb_pct * 100).toFixed(0)}%`
+        : 'BB N/A'
+      const rsiStr = snap.rsi_14 === 50 ? 'RSI 50 (fallback)' : `RSI ${snap.rsi_14}`
+      console.log(`[agent] ${asset}: $${snap.price.toLocaleString()} | 24h ${snap.change_24h}% | 7d ${snap.change_7d ?? 'N/A'}% | ${rsiStr} | ${trend} | ${macdStr} | ${bbStr}`)
+    }
+
+    // Fetch sentiment in parallel
+    const [fearGreed, news] = await Promise.all([
+      fetchFearAndGreed(),
+      fetchNewsHeadlines(getConfig().assets),
+    ])
+    if (fearGreed) {
+      console.log(`[agent] Fear & Greed: ${fearGreed.value}/100 (${fearGreed.classification})`)
+    }
+
+    const regime = detectRegime(market)
+    console.log(`[agent] Market regime: ${regime}`)
+
+    const decisions = await getDecisions(market, portfolio, MAX_POSITION_USD, recentAssets, fearGreed, news, regime)
+
+    // Log every asset's evaluation
+    for (const d of decisions) {
+      const flag = d.action === 'hold' ? '·' : d.action === 'buy' ? 'BUY' : 'SELL'
+      console.log(`[brain] ${flag} ${d.asset}: ${d.action.toUpperCase()} $${d.amount_usd} (conf: ${(d.confidence * 100).toFixed(0)}%) — ${d.reasoning}`)
+    }
+
+    // Pick the highest-confidence non-hold decision
+    const actionable = decisions
+      .filter(d => d.action !== 'hold')
+      .sort((a, b) => b.confidence - a.confidence)
+
+    const decision = actionable[0] ?? decisions[0]  // fallback to first if all hold
+    if (!decision) {
+      console.log('[agent] No decisions returned — skipping cycle')
+      await recordEquitySnapshot(portfolio)
+      return
+    }
 
     const record = await logDecision(market, portfolio, decision)
+    broadcast('trade:new', { asset: decision.asset, action: decision.action, amount_usd: decision.amount_usd })
 
     if (decision.action !== 'hold') {
+      // Track recently traded assets for next cycle's prompt
+      recentAssets = [decision.asset, ...recentAssets].slice(0, 3)
+
+      console.log(`[agent] Best signal: ${decision.action.toUpperCase()} ${decision.asset} $${decision.amount_usd} (conf: ${(decision.confidence * 100).toFixed(0)}%)`)
       if (getConfig().autoApprove) {
-        console.log(`[agent] 🤖 Auto-approving ${decision.action.toUpperCase()} ${decision.asset} $${decision.amount_usd}...`)
+        console.log(`[agent] Auto-approving...`)
         const result = await executeOrder(decision)
         await markExecuted(record._id.toString(), result.order_id)
-        console.log(`[agent] ✓ Auto-executed order ${result.order_id}`)
+        broadcast('trade:executed', { asset: decision.asset, action: decision.action })
+        console.log(`[agent] Auto-executed order ${result.order_id}`)
+
+        // Store SL/TP prices on the trade record
+        const entryPrice = market[decision.asset]?.price
+        if (entryPrice && result.order_id !== 'HOLD') {
+          const slPrice = entryPrice * (1 - getConfig().stopLossPct / 100)
+          const tpPrice = entryPrice * (1 + getConfig().takeProfitPct / 100)
+          await TradeModel.findByIdAndUpdate(record._id, { sl_price: slPrice, tp_price: tpPrice })
+          console.log(`[agent] SL: $${slPrice.toFixed(4)} | TP: $${tpPrice.toFixed(4)}`)
+        }
       } else {
-        console.log(`[agent] ⚠️  Non-hold decision logged — awaiting human approval via dashboard`)
+        console.log(`[agent] Awaiting human approval via dashboard`)
       }
+    } else {
+      console.log('[agent] All signals ambiguous — holding this cycle')
     }
+
+    // Record equity snapshot at end of every cycle
+    await recordEquitySnapshot(portfolio)
   } catch (err: any) {
     if (err.response) {
       console.error(
@@ -59,25 +147,45 @@ async function runAgentCycle(): Promise<void> {
 
 async function main(): Promise<void> {
   await connectDB()
+  await initConfig()
 
-  // Start API server for dashboard
+  // Start HTTP server with WebSocket support
   const app = createApiServer()
-  app.listen(API_PORT, () => {
+  const httpServer = createServer(app)
+  initWebSocket(httpServer)
+  httpServer.listen(API_PORT, () => {
     console.log(`[api] Server listening on port ${API_PORT}`)
   })
 
   // Run first cycle immediately on startup
   await runAgentCycle()
 
-  // Schedule polling cycle
-  const cronExpr = `*/${POLL_MINUTES} * * * *`
-  cron.schedule(cronExpr, runAgentCycle)
-  console.log(`[agent] Polling every ${POLL_MINUTES} minutes (${cronExpr})`)
+  // Dynamic scheduler — re-reads cycleMinutes after every cycle so changes
+  // made in the Settings page take effect without restarting the agent.
+  const scheduleNext = () => {
+    const mins = getConfig().cycleMinutes
+    console.log(`[agent] Next cycle in ${mins} minute(s)`)
+    setTimeout(async () => {
+      await runAgentCycle()
+      scheduleNext()
+    }, mins * 60 * 1000)
+  }
+  scheduleNext()
 
   // Resolve outcomes every hour
   cron.schedule('0 * * * *', async () => {
     console.log('[agent] Running outcome resolution...')
     await resolveOutcomes()
+  })
+
+  // SL/TP monitor every 2 minutes
+  cron.schedule('*/2 * * * *', async () => {
+    try {
+      const prices = await fetchLatestPrices(getConfig().assets)
+      await monitorStopLossTakeProfit(prices)
+    } catch (err: any) {
+      console.error('[agent] SL/TP monitor error:', err.message)
+    }
   })
 
   console.log('[agent] Running. Press Ctrl+C to stop.')
