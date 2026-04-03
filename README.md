@@ -1,4 +1,4 @@
-\# Trading Agent
+# Trading Agent
 
 
 
@@ -8,23 +8,23 @@ Logs every decision to MongoDB, resolves outcomes automatically, and exports pro
 
 
 
-\## Stack
+## Stack
 
-\- \*\*Agent\*\*: Node.js + TypeScript
+- **Agent**: Node.js + TypeScript
 
-\- \*\*LLM\*\*: Claude API (swap to Ollama after fine-tuning)
+- **LLM**: Claude API (swap to Ollama after fine-tuning)
 
-\- \*\*Paper trading\*\*: Alpaca Paper API
+- **Paper trading**: Alpaca Paper API
 
-\- \*\*Database\*\*: MongoDB
+- **Database**: MongoDB
 
-\- \*\*Dashboard\*\*: React + TypeScript (Vite)
+- **Dashboard**: React + TypeScript (Vite)
 
-\- \*\*Training\*\*: Google Colab + Unsloth QLoRA
+- **Training**: Google Colab + Unsloth QLoRA
 
 
 
-\## Quick start
+## Quick start
 
 ```bash
 
@@ -32,15 +32,15 @@ cp agent/.env.example agent/.env   # fill in your keys
 
 docker compose up -d
 
-\# Dashboard → http://localhost:3000
+# Dashboard → http://localhost:3000
 
-\# Agent API → http://localhost:3001/api/stats
+# Agent API → http://localhost:3001/api/stats
 
 ```
 
 
 
-\## Agent API
+## Agent API
 
 | Endpoint | Description |
 
@@ -50,7 +50,7 @@ docker compose up -d
 
 | `GET /api/trades/pending` | Awaiting human approval |
 
-| `GET /api/stats` | Win rate, P\&L, dataset size |
+| `GET /api/stats` | Win rate, P&L, dataset size |
 
 | `POST /api/trades/:id/approve` | Approve + execute order |
 
@@ -60,15 +60,15 @@ docker compose up -d
 
 
 
-\## Switching to local model
+## Switching to local model
 
 ```env
 
-LLM\_PROVIDER=ollama
+LLM_PROVIDER=ollama
 
-OLLAMA\_BASE\_URL=http://your-proxmox-ip:11434
+OLLAMA_BASE_URL=http://your-proxmox-ip:11434
 
-OLLAMA\_MODEL=trading-llm
+OLLAMA_MODEL=trading-llm
 
 ```
 
