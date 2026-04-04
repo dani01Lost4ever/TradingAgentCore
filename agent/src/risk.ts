@@ -1,5 +1,5 @@
-import { TradeModel, EquityModel, AssetSnapshot } from './schema'
-import { AgentConfig } from './config'
+import { TradeModel, EquityModel, AssetSnapshot, PositionHighModel } from './schema'
+import { AgentConfig, getConfig } from './config'
 import { executeOrder } from './executor'
 import { markExecuted } from './logger'
 import { Portfolio } from './poller'
@@ -79,6 +79,34 @@ export async function recordEquitySnapshot(portfolio: Portfolio): Promise<void> 
   await EquityModel.create({ equity: portfolio.equity_usd, cash: portfolio.cash_usd, peak })
 }
 
+export async function kellyPositionSize(
+  asset: string,
+  atrSize: number,
+  maxPositionUsd: number
+): Promise<number> {
+  // Get historical win rate and avg win/loss for this asset from TradeModel
+  const trades = await TradeModel.find({
+    'decision.asset': asset,
+    'outcome.pnl_usd': { $exists: true },
+    executed: true,
+  }).lean()
+
+  if (trades.length < 5) return atrSize // not enough history, use ATR
+
+  const wins   = trades.filter(t => (t.outcome?.pnl_usd ?? 0) > 0)
+  const losses = trades.filter(t => (t.outcome?.pnl_usd ?? 0) <= 0)
+  const p = wins.length / trades.length
+  const q = 1 - p
+  const avgWin  = wins.length   ? wins.reduce((s, t)   => s + (t.outcome?.pnl_usd ?? 0), 0) / wins.length   : 0
+  const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + (t.outcome?.pnl_usd ?? 0), 0) / losses.length) : 1
+
+  const b = avgWin / avgLoss
+  const kelly = (p * b - q) / b // Kelly fraction
+  const kellySize = Math.max(0, kelly) * maxPositionUsd * 0.5 // half-Kelly for safety
+
+  return parseFloat(Math.min(atrSize, Math.max(kellySize, maxPositionUsd * 0.05)).toFixed(2))
+}
+
 // Cron job: check SL/TP for all open buy positions
 export async function monitorStopLossTakeProfit(
   currentPrices: Record<string, AssetSnapshot>
@@ -118,6 +146,59 @@ export async function monitorStopLossTakeProfit(
       console.log(`[risk] Closed ${trade.decision.asset} via ${triggered.toUpperCase()}`)
     } catch (err: any) {
       console.error(`[risk] Failed to close position: ${err.message}`)
+    }
+  }
+
+  await updateAndCheckTrailingStops(currentPrices)
+}
+
+export async function updateAndCheckTrailingStops(
+  currentPrices: Record<string, AssetSnapshot>
+): Promise<void> {
+  const cfg = getConfig()
+  if (!cfg.trailingStopEnabled) return
+
+  const openTrades = await TradeModel.find({
+    executed: true,
+    outcome: { $exists: false },
+    'decision.action': 'buy',
+  }).lean()
+
+  for (const trade of openTrades) {
+    const snap = currentPrices[trade.decision.asset]
+    if (!snap) continue
+    const currentPrice = snap.price
+    const tradeId = trade._id.toString()
+
+    // Upsert high water mark
+    const existing = await PositionHighModel.findOne({ tradeId })
+    const newHigh = existing ? Math.max(existing.highPrice, currentPrice) : currentPrice
+
+    await PositionHighModel.findOneAndUpdate(
+      { tradeId },
+      { highPrice: newHigh, updatedAt: new Date(), asset: trade.decision.asset },
+      { upsert: true }
+    )
+
+    // Check trailing stop
+    const stopLevel = newHigh * (1 - cfg.trailingStopPct / 100)
+    if (currentPrice <= stopLevel) {
+      console.log(`[risk] TRAILING STOP triggered for ${trade.decision.asset} @ $${currentPrice} (high was $${newHigh}, stop $${stopLevel.toFixed(4)})`)
+      try {
+        const result = await executeOrder({
+          action: 'sell',
+          asset: trade.decision.asset,
+          amount_usd: trade.decision.amount_usd,
+          confidence: 1.0,
+          reasoning: `Trailing stop triggered at $${currentPrice} (${cfg.trailingStopPct}% below high of $${newHigh})`,
+        })
+        await markExecuted(trade._id.toString(), result.order_id)
+        await TradeModel.findByIdAndUpdate(trade._id, { close_reason: 'sl', closed_at: new Date() })
+        await PositionHighModel.deleteOne({ tradeId })
+        console.log(`[risk] Closed ${trade.decision.asset} via trailing stop`)
+      } catch (err: any) {
+        console.error(`[risk] Failed to close trailing stop position: ${err.message}`)
+      }
     }
   }
 }

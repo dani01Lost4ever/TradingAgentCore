@@ -1,7 +1,7 @@
 import { config } from 'dotenv'
 import { join } from 'path'
 config({ path: join(__dirname, '../../.env') })
-import { patchConsole } from './logs'
+import { patchConsole, setLogBroadcaster } from './logs'
 patchConsole()
 import cron from 'node-cron'
 import { createServer } from 'http'
@@ -16,6 +16,9 @@ import { TradeModel } from './schema'
 import { getRiskStatus, recordEquitySnapshot, monitorStopLossTakeProfit } from './risk'
 import { fetchFearAndGreed, fetchNewsHeadlines } from './sentiment'
 import { initWebSocket, broadcast } from './ws'
+import { ensureAdminExists } from './auth'
+import { loadKeysFromDB } from './keys'
+import { isPaused } from './agentState'
 import type { AssetSnapshot } from './schema'
 
 const MAX_POSITION_USD = parseFloat(process.env.MAX_POSITION_USD || '500')
@@ -34,6 +37,11 @@ function detectRegime(market: Record<string, AssetSnapshot>): string {
 }
 
 async function runAgentCycle(): Promise<void> {
+  if (isPaused()) {
+    console.log('[agent] Cycle skipped — agent is paused')
+    return
+  }
+
   console.log('\n[agent] Starting cycle', new Date().toISOString())
 
   try {
@@ -94,15 +102,29 @@ async function runAgentCycle(): Promise<void> {
       .filter(d => d.action !== 'hold')
       .sort((a, b) => b.confidence - a.confidence)
 
-    const decision = actionable[0] ?? decisions[0]  // fallback to first if all hold
+    let decision = actionable[0] ?? decisions[0]  // fallback to first if all hold
     if (!decision) {
       console.log('[agent] No decisions returned — skipping cycle')
       await recordEquitySnapshot(portfolio)
       return
     }
 
+    // Confidence threshold gating
+    if (getConfig().confidenceThreshold > 0 && decision.action !== 'hold') {
+      if (decision.confidence < getConfig().confidenceThreshold) {
+        console.log(`[agent] Skipping ${decision.action} ${decision.asset} — confidence ${(decision.confidence * 100).toFixed(0)}% below threshold ${(getConfig().confidenceThreshold * 100).toFixed(0)}%`)
+        decision = { ...decision, action: 'hold', amount_usd: 0 }
+      }
+    }
+
+    // Kelly criterion position sizing
+    if (getConfig().kellyEnabled && decision.action !== 'hold') {
+      const { kellyPositionSize } = await import('./risk')
+      decision.amount_usd = await kellyPositionSize(decision.asset, decision.amount_usd, MAX_POSITION_USD)
+    }
+
     const record = await logDecision(market, portfolio, decision)
-    broadcast('trade:new', { asset: decision.asset, action: decision.action, amount_usd: decision.amount_usd })
+    broadcast('trade:new', record.toObject())
 
     if (decision.action !== 'hold') {
       // Track recently traded assets for next cycle's prompt
@@ -113,7 +135,8 @@ async function runAgentCycle(): Promise<void> {
         console.log(`[agent] Auto-approving...`)
         const result = await executeOrder(decision)
         await markExecuted(record._id.toString(), result.order_id)
-        broadcast('trade:executed', { asset: decision.asset, action: decision.action })
+        const executedRecord = await TradeModel.findById(record._id).lean()
+        broadcast('trade:executed', executedRecord)
         console.log(`[agent] Auto-executed order ${result.order_id}`)
 
         // Store SL/TP prices on the trade record
@@ -123,6 +146,15 @@ async function runAgentCycle(): Promise<void> {
           const tpPrice = entryPrice * (1 + getConfig().takeProfitPct / 100)
           await TradeModel.findByIdAndUpdate(record._id, { sl_price: slPrice, tp_price: tpPrice })
           console.log(`[agent] SL: $${slPrice.toFixed(4)} | TP: $${tpPrice.toFixed(4)}`)
+
+          if (getConfig().trailingStopEnabled) {
+            const { PositionHighModel } = await import('./schema')
+            await PositionHighModel.create({
+              asset: decision.asset,
+              tradeId: record._id.toString(),
+              highPrice: entryPrice,
+            })
+          }
         }
       } else {
         console.log(`[agent] Awaiting human approval via dashboard`)
@@ -148,11 +180,14 @@ async function runAgentCycle(): Promise<void> {
 async function main(): Promise<void> {
   await connectDB()
   await initConfig()
+  await loadKeysFromDB()
+  await ensureAdminExists()
 
   // Start HTTP server with WebSocket support
   const app = createApiServer()
   const httpServer = createServer(app)
   initWebSocket(httpServer)
+  setLogBroadcaster((entry) => broadcast('log_line', entry))
   httpServer.listen(API_PORT, () => {
     console.log(`[api] Server listening on port ${API_PORT}`)
   })
@@ -187,6 +222,18 @@ async function main(): Promise<void> {
       console.error('[agent] SL/TP monitor error:', err.message)
     }
   })
+
+  // Price ticker broadcast every 60 seconds
+  setInterval(async () => {
+    try {
+      const prices = await fetchLatestPrices(getConfig().assets)
+      const tick: Record<string, { price: number; change24h: number }> = {}
+      for (const [asset, snap] of Object.entries(prices)) {
+        tick[asset] = { price: snap.price, change24h: snap.change_24h }
+      }
+      broadcast('price_tick', tick)
+    } catch { /* ignore */ }
+  }, 60_000)
 
   console.log('[agent] Running. Press Ctrl+C to stop.')
 }

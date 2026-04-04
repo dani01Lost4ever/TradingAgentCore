@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react'
-import { WS_URL } from '../api'
+import { getWsUrl } from '../api'
 
-export type WsEventType = 'portfolio' | 'trade:new' | 'trade:executed' | 'connected'
+export type WsEventType = 'portfolio' | 'trade:new' | 'trade:executed' | 'connected' | 'log_line' | 'price_tick'
 
 export interface WsEvent<T = unknown> {
   type: WsEventType
@@ -31,7 +31,7 @@ export function useSocket(onMessage: Handler) {
   const connect = useCallback(() => {
     if (unmounted.current) return
 
-    const ws = new WebSocket(WS_URL)
+    const ws = new WebSocket(getWsUrl())
     wsRef.current = ws
 
     ws.onopen = () => {

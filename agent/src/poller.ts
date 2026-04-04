@@ -1,12 +1,13 @@
 import axios from 'axios'
 import { AssetSnapshot } from './schema'
+import { getKey } from './keys'
 
-const BASE = process.env.ALPACA_BASE_URL || 'https://paper-api.alpaca.markets'
 const DATA = 'https://data.alpaca.markets'
 
+const base    = () => getKey('alpaca_base_url') || 'https://paper-api.alpaca.markets'
 const headers = () => ({
-  'APCA-API-KEY-ID': process.env.ALPACA_API_KEY!,
-  'APCA-API-SECRET-KEY': process.env.ALPACA_API_SECRET!,
+  'APCA-API-KEY-ID':     getKey('alpaca_api_key')    || '',
+  'APCA-API-SECRET-KEY': getKey('alpaca_api_secret') || '',
 })
 
 export interface Portfolio {
@@ -18,8 +19,8 @@ export interface Portfolio {
 // Fetch current portfolio from Alpaca paper account
 export async function fetchPortfolio(): Promise<Portfolio> {
   const [accountRes, positionsRes] = await Promise.all([
-    axios.get(`${BASE}/v2/account`, { headers: headers() }),
-    axios.get(`${BASE}/v2/positions`, { headers: headers() }),
+    axios.get(`${base()}/v2/account`, { headers: headers() }),
+    axios.get(`${base()}/v2/positions`, { headers: headers() }),
   ])
 
   const positions: Record<string, number> = {}

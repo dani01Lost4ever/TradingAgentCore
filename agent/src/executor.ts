@@ -1,11 +1,11 @@
 import axios from 'axios'
 import { Decision } from './brain'
+import { getKey } from './keys'
 
-const BASE = process.env.ALPACA_BASE_URL || 'https://paper-api.alpaca.markets'
-
+const base    = () => getKey('alpaca_base_url') || 'https://paper-api.alpaca.markets'
 const headers = () => ({
-  'APCA-API-KEY-ID': process.env.ALPACA_API_KEY!,
-  'APCA-API-SECRET-KEY': process.env.ALPACA_API_SECRET!,
+  'APCA-API-KEY-ID':     getKey('alpaca_api_key')    || '',
+  'APCA-API-SECRET-KEY': getKey('alpaca_api_secret') || '',
   'Content-Type': 'application/json',
 })
 
@@ -31,7 +31,7 @@ export async function executeOrder(decision: Decision): Promise<OrderResult> {
 
   console.log(`[executor] Placing ${decision.action} order: $${decision.amount_usd} of ${decision.asset}`)
 
-  const res = await axios.post(`${BASE}/v2/orders`, body, { headers: headers() })
+  const res = await axios.post(`${base()}/v2/orders`, body, { headers: headers() })
 
   return {
     order_id: res.data.id,
@@ -45,6 +45,6 @@ export async function executeOrder(decision: Decision): Promise<OrderResult> {
 
 // Cancel a pending order (safety utility)
 export async function cancelOrder(orderId: string): Promise<void> {
-  await axios.delete(`${BASE}/v2/orders/${orderId}`, { headers: headers() })
+  await axios.delete(`${base()}/v2/orders/${orderId}`, { headers: headers() })
   console.log(`[executor] Cancelled order ${orderId}`)
 }

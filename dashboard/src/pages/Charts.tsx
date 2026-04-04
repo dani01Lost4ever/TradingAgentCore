@@ -30,6 +30,34 @@ function computeEMA(values: number[], period: number): (number | null)[] {
   return result
 }
 
+function computeRSI(closes: number[], period = 14): (number | null)[] {
+  const result: (number | null)[] = new Array(closes.length).fill(null)
+  for (let i = period; i < closes.length; i++) {
+    let gains = 0, losses = 0
+    for (let j = i - period; j < i; j++) {
+      const diff = closes[j + 1] - closes[j]
+      if (diff > 0) gains += diff; else losses -= diff
+    }
+    const rs = losses === 0 ? 100 : gains / losses
+    result[i] = parseFloat((100 - 100 / (1 + rs)).toFixed(2))
+  }
+  return result
+}
+
+function computeBB(closes: number[], period = 20): { upper: number | null; lower: number | null; mid: number | null }[] {
+  return closes.map((_, i) => {
+    if (i < period - 1) return { upper: null, lower: null, mid: null }
+    const slice = closes.slice(i - period + 1, i + 1)
+    const mean = slice.reduce((a, b) => a + b, 0) / period
+    const std = Math.sqrt(slice.reduce((a, b) => a + (b - mean) ** 2, 0) / period)
+    return {
+      upper: parseFloat((mean + 2 * std).toFixed(6)),
+      lower: parseFloat((mean - 2 * std).toFixed(6)),
+      mid:   parseFloat(mean.toFixed(6)),
+    }
+  })
+}
+
 function fmtDate(ts: string, tf: Timeframe) {
   const d = new Date(ts)
   if (tf === '1D') return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
@@ -48,6 +76,10 @@ interface ChartPoint {
   volume: number
   ema9: number | null
   ema21: number | null
+  rsi: number | null
+  bbUpper: number | null
+  bbLower: number | null
+  bbMid: number | null
   isUp: boolean
 }
 
@@ -69,6 +101,9 @@ const CustomTooltip = ({ active, payload, label }: any) => {
         <span style={{ color: 'var(--muted)' }}>C</span><span style={{ color: d.isUp ? 'var(--green)' : 'var(--danger)', fontWeight: 600 }}>{fmtPrice(d.close)}</span>
         {d.ema9  != null && <><span style={{ color: 'var(--muted)' }}>EMA9</span><span style={{ color: 'var(--accent)' }}>{fmtPrice(d.ema9)}</span></>}
         {d.ema21 != null && <><span style={{ color: 'var(--muted)' }}>EMA21</span><span style={{ color: 'var(--accent2)' }}>{fmtPrice(d.ema21)}</span></>}
+        {d.rsi   != null && <><span style={{ color: 'var(--muted)' }}>RSI</span><span style={{ color: d.rsi > 70 ? 'var(--danger)' : d.rsi < 30 ? 'var(--green)' : 'var(--text)' }}>{d.rsi}</span></>}
+        {d.bbUpper != null && <><span style={{ color: 'var(--muted)' }}>BB Up</span><span style={{ color: 'rgba(99,102,241,0.9)' }}>{fmtPrice(d.bbUpper)}</span></>}
+        {d.bbLower != null && <><span style={{ color: 'var(--muted)' }}>BB Lo</span><span style={{ color: 'rgba(99,102,241,0.9)' }}>{fmtPrice(d.bbLower)}</span></>}
         <span style={{ color: 'var(--muted)' }}>Vol</span><span style={{ color: 'var(--text)' }}>{d.volume.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
       </div>
     </div>
@@ -76,26 +111,34 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 }
 
 function AssetChart({ asset }: { asset: string }) {
-  const [tf, setTf]         = useState<Timeframe>('1H')
-  const [data, setData]     = useState<ChartPoint[]>([])
+  const [tf, setTf]           = useState<Timeframe>('1H')
+  const [data, setData]       = useState<ChartPoint[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError]   = useState<string | null>(null)
+  const [error, setError]     = useState<string | null>(null)
+  const [showBB, setShowBB]   = useState(true)
+  const [showRSI, setShowRSI] = useState(true)
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const bars: OHLCBar[] = await api.chartBars(asset, tf, TF_LIMIT[tf])
-      const closes = bars.map(b => b.c)
+      const closes   = bars.map(b => b.c)
       const ema9arr  = computeEMA(closes, 9)
       const ema21arr = computeEMA(closes, 21)
+      const rsiArr   = computeRSI(closes, 14)
+      const bbArr    = computeBB(closes, 20)
       const points: ChartPoint[] = bars.map((b, i) => ({
-        date:   fmtDate(b.t, tf),
-        open:   b.o, high: b.h, low: b.l, close: b.c,
-        volume: b.v,
-        ema9:   ema9arr[i],
-        ema21:  ema21arr[i],
-        isUp:   b.c >= b.o,
+        date:    fmtDate(b.t, tf),
+        open:    b.o, high: b.h, low: b.l, close: b.c,
+        volume:  b.v,
+        ema9:    ema9arr[i],
+        ema21:   ema21arr[i],
+        rsi:     rsiArr[i],
+        bbUpper: bbArr[i].upper,
+        bbLower: bbArr[i].lower,
+        bbMid:   bbArr[i].mid,
+        isUp:    b.c >= b.o,
       }))
       setData(points)
     } catch (e: any) {
@@ -120,6 +163,22 @@ function AssetChart({ asset }: { asset: string }) {
   const padP = (maxP - minP) * 0.04
   const yDomain: [number, number] = [minP - padP, maxP + padP]
 
+  const toggleBtn = (label: string, active: boolean, onToggle: () => void) => (
+    <button
+      onClick={onToggle}
+      style={{
+        padding: '3px 9px', borderRadius: 4, fontSize: 10,
+        fontFamily: 'var(--font-mono)',
+        background: active ? 'rgba(var(--accent-rgb,0,212,170),0.12)' : 'transparent',
+        color: active ? 'var(--accent)' : 'var(--muted)',
+        border: active ? '1px solid rgba(var(--accent-rgb,0,212,170),0.3)' : '1px solid var(--border2)',
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+    </button>
+  )
+
   return (
     <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
       {/* Header */}
@@ -137,6 +196,12 @@ function AssetChart({ asset }: { asset: string }) {
             )}
           </>
         )}
+
+        {/* Indicator toggles */}
+        <div style={{ display: 'flex', gap: 6, marginLeft: 8 }}>
+          {toggleBtn('BB', showBB, () => setShowBB(v => !v))}
+          {toggleBtn('RSI', showRSI, () => setShowRSI(v => !v))}
+        </div>
 
         {/* Timeframe selector */}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
@@ -172,7 +237,7 @@ function AssetChart({ asset }: { asset: string }) {
           <ResponsiveContainer width="100%" height={260}>
             <ComposedChart data={data} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
               <defs>
-                <linearGradient id={`grad-${asset.replace('/','-')}`} x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id={`grad-${asset.replace('/', '-')}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.18} />
                   <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
                 </linearGradient>
@@ -194,14 +259,39 @@ function AssetChart({ asset }: { asset: string }) {
               <Area
                 type="monotone" dataKey="close"
                 stroke="var(--accent)" strokeWidth={1.5}
-                fill={`url(#grad-${asset.replace('/','-')})`}
+                fill={`url(#grad-${asset.replace('/', '-')})`}
                 dot={false} activeDot={{ r: 3, fill: 'var(--accent)' }}
               />
               <Line type="monotone" dataKey="ema9"  stroke="var(--accent)"  strokeWidth={1} dot={false} strokeDasharray="4 2" connectNulls />
               <Line type="monotone" dataKey="ema21" stroke="var(--accent2)" strokeWidth={1} dot={false} strokeDasharray="4 2" connectNulls />
+              {showBB && (
+                <>
+                  <Line dataKey="bbUpper" stroke="rgba(99,102,241,0.6)" strokeWidth={1} dot={false} strokeDasharray="3 2" connectNulls />
+                  <Line dataKey="bbLower" stroke="rgba(99,102,241,0.6)" strokeWidth={1} dot={false} strokeDasharray="3 2" connectNulls />
+                  <Line dataKey="bbMid"   stroke="rgba(99,102,241,0.3)" strokeWidth={1} dot={false} connectNulls />
+                </>
+              )}
               {last && <ReferenceLine y={last.close} stroke="var(--border2)" strokeDasharray="2 3" />}
             </ComposedChart>
           </ResponsiveContainer>
+
+          {/* RSI sub-chart */}
+          {showRSI && (
+            <ResponsiveContainer width="100%" height={80}>
+              <ComposedChart data={data} margin={{ top: 0, right: 16, bottom: 0, left: 0 }}>
+                <XAxis dataKey="date" hide />
+                <YAxis
+                  domain={[0, 100]}
+                  tick={{ fontFamily: 'var(--font-mono)', fontSize: 9, fill: 'var(--muted)' }}
+                  axisLine={false} tickLine={false}
+                  tickFormatter={v => `${v}`} width={28} orientation="right"
+                />
+                <ReferenceLine y={70} stroke="rgba(239,68,68,0.4)" strokeDasharray="3 2" />
+                <ReferenceLine y={30} stroke="rgba(34,197,94,0.4)"  strokeDasharray="3 2" />
+                <Line dataKey="rsi" stroke="var(--accent2)" strokeWidth={1.5} dot={false} connectNulls />
+              </ComposedChart>
+            </ResponsiveContainer>
+          )}
 
           {/* Volume chart */}
           <ResponsiveContainer width="100%" height={60}>
@@ -220,7 +310,7 @@ function AssetChart({ asset }: { asset: string }) {
           </ResponsiveContainer>
 
           {/* Legend */}
-          <div style={{ display: 'flex', gap: 16, padding: '6px 18px 12px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>
+          <div style={{ display: 'flex', gap: 16, padding: '6px 18px 12px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', flexWrap: 'wrap' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{ width: 16, height: 2, background: 'var(--accent)', display: 'inline-block', borderRadius: 1 }} />
               Close
@@ -233,6 +323,18 @@ function AssetChart({ asset }: { asset: string }) {
               <span style={{ width: 16, height: 2, background: 'var(--accent2)', display: 'inline-block', borderRadius: 1, opacity: 0.7 }} />
               EMA21
             </span>
+            {showBB && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 16, height: 2, background: 'rgba(99,102,241,0.7)', display: 'inline-block', borderRadius: 1 }} />
+                BB Bands
+              </span>
+            )}
+            {showRSI && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 16, height: 2, background: 'var(--accent2)', display: 'inline-block', borderRadius: 1 }} />
+                RSI(14)
+              </span>
+            )}
             <span style={{ marginLeft: 'auto' }}>{data.length} bars · {tf}</span>
           </div>
         </div>
@@ -259,7 +361,7 @@ export function Charts() {
           CHARTS
         </h2>
         <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
-          Price, EMA9/21 overlay, and volume for each active asset.
+          Price, EMA9/21, Bollinger Bands, RSI(14), and volume for each active asset.
         </p>
       </div>
 

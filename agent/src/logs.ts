@@ -4,6 +4,10 @@ export interface LogEntry {
   msg: string
 }
 
+type Broadcaster = (entry: LogEntry) => void
+let broadcaster: Broadcaster | null = null
+export function setLogBroadcaster(fn: Broadcaster): void { broadcaster = fn }
+
 const MAX_ENTRIES = 300
 const buffer: LogEntry[] = []
 
@@ -13,6 +17,7 @@ export function pushLog(level: LogEntry['level'], ...args: unknown[]): void {
     .join(' ')
   buffer.push({ ts: new Date().toISOString(), level, msg })
   if (buffer.length > MAX_ENTRIES) buffer.shift()
+  broadcaster?.(buffer[buffer.length - 1])
 }
 
 export function getLogs(limit = 150): LogEntry[] {

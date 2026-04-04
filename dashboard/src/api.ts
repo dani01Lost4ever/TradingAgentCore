@@ -38,7 +38,33 @@ export interface AgentConfig {
   maxOpenPositions: number
   claudeModel: string
   cycleMinutes: number
+  confidenceThreshold: number
+  kellyEnabled: boolean
+  consensusMode: boolean
+  consensusModel: string
+  trailingStopEnabled: boolean
+  trailingStopPct: number
 }
+
+export interface HealthStatus {
+  status: 'ok' | 'degraded'
+  mongodb: boolean; anthropicKeySet: boolean; openaiKeySet: boolean; alpacaKeySet: boolean
+  lastCycleAt: string | null; uptime: number
+}
+export interface AuditEvent { _id: string; ts: string; user: string; action: string; details: string; ip?: string }
+export interface BacktestResult {
+  _id?: string; runAt: string
+  params: { assets: string[]; startDate: string; endDate: string; cycleHours: number; model: string; mode: string }
+  startEquity: number; finalEquity: number; totalReturn: number
+  maxDrawdown: number; winRate: number; totalTrades: number
+  trades?: BacktestTrade[]
+  sharpe?: number
+  sortino?: number
+}
+export interface BacktestTrade { ts: string; asset: string; action: string; price: number; amount_usd: number; confidence: number; pnl_usd: number }
+export interface BenchmarkPoint { ts: string; equity: number; benchmark: number }
+export interface BenchmarkData { points: BenchmarkPoint[]; benchmarkAsset: string }
+export interface LivePrices { [asset: string]: { price: number; change24h: number } }
 export interface TrainingStatus {
   provider: 'claude' | 'ollama'
   ollamaModel: string; ollamaBase: string; ollamaReachable: boolean
@@ -75,8 +101,42 @@ export interface TokenUsageRow {
   input_tokens: number; output_tokens: number; cost_usd: number; context: string
 }
 
+export type KeyName = 'anthropic_api_key' | 'openai_api_key' | 'alpaca_api_key' | 'alpaca_api_secret' | 'alpaca_base_url'
+export type MaskedKeys = Record<KeyName, string>
+
+export interface AlpacaPosition {
+  symbol: string
+  qty: string
+  avg_entry_price: string
+  current_price: string
+  market_value: string
+  unrealized_pl: string
+  unrealized_plpc: string
+  side: 'long' | 'short'
+}
+
+// ── Auth helpers ──────────────────────────────────────────────────────────────
+export const auth = {
+  getToken: () => localStorage.getItem('token'),
+  setToken: (t: string) => localStorage.setItem('token', t),
+  clearToken: () => localStorage.removeItem('token'),
+  isLoggedIn: () => !!localStorage.getItem('token'),
+}
+
 async function req<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, opts)
+  const token = auth.getToken()
+  const headers: Record<string, string> = {
+    ...(opts?.headers as Record<string, string>),
+  }
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const res = await fetch(`${BASE}${path}`, { ...opts, headers })
+
+  if (res.status === 401) {
+    auth.clearToken()
+    window.location.reload()
+    throw new Error('Session expired')
+  }
   if (!res.ok) throw new Error(`API error ${res.status}`)
   return res.json()
 }
@@ -88,17 +148,31 @@ const json = (body: unknown): RequestInit => ({
 })
 
 export const api = {
-  stats:           () => req<Stats>('/api/stats'),
-  trades:          (page = 1, limit = 50) => req<TradesResponse>(`/api/trades?page=${page}&limit=${limit}`),
-  pending:         () => req<Trade[]>('/api/trades/pending'),
-  approve:         (id: string) => req<{success:boolean}>(`/api/trades/${id}/approve`, {method:'POST'}),
-  reject:          (id: string) => req<{success:boolean}>(`/api/trades/${id}/reject`, {method:'POST'}),
-  exportDataset:   () => req<{success:boolean;count:number}>('/api/dataset/export', {method:'POST'}),
-  logs:            (limit = 150) => req<LogEntry[]>(`/api/logs?limit=${limit}`),
-  trainingStatus:  () => req<TrainingStatus>('/api/training/status'),
-  getConfig:       () => req<AgentConfig>('/api/config'),
-  setConfig:       (cfg: Partial<AgentConfig>) => req<AgentConfig>('/api/config', json(cfg)),
-  setRiskConfig:   (cfg: Partial<AgentConfig>) => req<AgentConfig>('/api/config/risk', json(cfg)),
+  // Models
+  fetchModels:    (provider: 'claude' | 'openai') =>
+    req<{ models: { id: string; name: string }[] }>(`/api/models?provider=${provider}`),
+
+  // Auth
+  login:          (username: string, password: string) =>
+    req<{ token: string }>('/api/auth/login', json({ username, password })),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    req<{ success: boolean }>('/api/auth/change-password', json({ currentPassword, newPassword })),
+
+  // API Key management
+  getKeys:        () => req<MaskedKeys>('/api/keys'),
+  setKey:         (key: KeyName, value: string) => req<{ success: boolean }>('/api/keys', json({ key, value })),
+
+  stats:          () => req<Stats>('/api/stats'),
+  trades:         (page = 1, limit = 50) => req<TradesResponse>(`/api/trades?page=${page}&limit=${limit}`),
+  pending:        () => req<Trade[]>('/api/trades/pending'),
+  approve:        (id: string) => req<{success:boolean}>(`/api/trades/${id}/approve`, {method:'POST'}),
+  reject:         (id: string) => req<{success:boolean}>(`/api/trades/${id}/reject`, {method:'POST'}),
+  exportDataset:  () => req<{success:boolean;count:number}>('/api/dataset/export', {method:'POST'}),
+  logs:           (limit = 150) => req<LogEntry[]>(`/api/logs?limit=${limit}`),
+  trainingStatus: () => req<TrainingStatus>('/api/training/status'),
+  getConfig:      () => req<AgentConfig>('/api/config'),
+  setConfig:      (cfg: Partial<AgentConfig>) => req<AgentConfig>('/api/config', json(cfg)),
+  setRiskConfig:  (cfg: Partial<AgentConfig>) => req<AgentConfig>('/api/config/risk', json(cfg)),
   datasetDownloadUrl: () => `${BASE}/api/dataset/download`,
 
   // Assets
@@ -110,18 +184,65 @@ export const api = {
   chartBars: (asset: string, timeframe = '1H', limit = 150) =>
     req<OHLCBar[]>(`/api/charts/${encodeURIComponent(asset)}?timeframe=${timeframe}&limit=${limit}`),
 
-  // New features
   equityHistory:   (limit = 200) => req<EquityPoint[]>(`/api/equity/history?limit=${limit}`),
   portfolioDetail: () => req<PortfolioDetail>('/api/portfolio/detail'),
   perAssetPnl:     () => req<AssetPnl[]>('/api/stats/per-asset'),
   riskStatus:      () => req<RiskStatus>('/api/risk/status'),
 
-  // Token / cost tracking
   tokenStats:      () => req<TokenStats>('/api/tokens/stats'),
   tokenHistory:    (limit = 200) => req<TokenUsageRow[]>(`/api/tokens/history?limit=${limit}`),
+
+  // Public endpoints (no auth)
+  health:          async () => { const r = await fetch('/api/health'); return r.json() as Promise<HealthStatus> },
+  livePrices:      async () => { const r = await fetch('/api/prices/live'); return r.json() as Promise<LivePrices> },
+
+  // Audit
+  audit:           (limit?: number) => req<{ events: AuditEvent[] }>(`/api/audit?limit=${limit ?? 100}`),
+
+  // Prompt
+  getPrompt:       () => req<{ systemPrompt: string | null }>('/api/prompt'),
+  setPrompt:       (systemPrompt: string) => req<{ success: boolean }>('/api/prompt', json({ systemPrompt })),
+  deletePrompt:    () => req<{ success: boolean }>('/api/prompt', { method: 'DELETE' }),
+
+  // Agent control
+  agentStatus:    () => req<{ paused: boolean }>('/api/agent/status'),
+  pauseAgent:     () => req<{ paused: boolean }>('/api/agent/pause', { method: 'POST' }),
+  resumeAgent:    () => req<{ paused: boolean }>('/api/agent/resume', { method: 'POST' }),
+
+  // Positions
+  positions:      () => req<AlpacaPosition[]>('/api/positions'),
+
+  // Live logs
+  agentLogs:      (limit?: number) => req<{ logs: LogEntry[] }>(`/api/agent/logs?limit=${limit ?? 150}`),
+
+  // Backtest
+  runBacktest:     (params: object) => req<BacktestResult>('/api/backtest', json(params)),
+  backtestResults: () => req<BacktestResult[]>('/api/backtest/results'),
+
+  // Benchmark
+  benchmark:       () => req<BenchmarkData>('/api/equity/benchmark'),
+
+  // Reasoning
+  reasoning: (params?: { asset?: string; action?: string; outcome?: string; limit?: number; page?: number }) => {
+    const q = new URLSearchParams()
+    if (params?.asset)   q.set('asset', params.asset)
+    if (params?.action)  q.set('action', params.action)
+    if (params?.outcome) q.set('outcome', params.outcome)
+    if (params?.limit)   q.set('limit', String(params.limit))
+    if (params?.page)    q.set('page', String(params.page))
+    return req<{ trades: Trade[]; total: number }>(`/api/trades/reasoning?${q}`)
+  },
 }
 
-// WebSocket URL — works locally (via Vite proxy) and in Docker (via nginx)
+// WebSocket URL with JWT token injected at call time
+export function getWsUrl(): string {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const base  = `${proto}//${window.location.host}/ws`
+  const token = auth.getToken()
+  return token ? `${base}?token=${encodeURIComponent(token)}` : base
+}
+
+// Keep WS_URL for any legacy imports
 export const WS_URL = (() => {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${proto}//${window.location.host}/ws`

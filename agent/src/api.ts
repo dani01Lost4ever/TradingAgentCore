@@ -1,19 +1,26 @@
 import express from 'express'
-import { TradeModel, EquityModel, TokenUsageModel } from './schema'
+import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
+import { TradeModel, EquityModel, TokenUsageModel, AuditLogModel, PromptModel, BacktestResultModel } from './schema'
 import { executeOrder } from './executor'
 import { markExecuted, exportDataset } from './logger'
 import { getLogs } from './logs'
 import { getConfig, setConfig } from './config'
+import { requireAuth, loginHandler, changePasswordHandler } from './auth'
+import { getKey, setKey, getMaskedKeys, KEY_NAMES } from './keys'
+import { logAudit } from './audit'
+import { isPaused, pauseAgent, resumeAgent } from './agentState'
+import type { KeyName } from './keys'
 import axios from 'axios'
 import path from 'path'
 import fs from 'fs'
 
-const ALPACA_BASE = process.env.ALPACA_BASE_URL || 'https://paper-api.alpaca.markets'
 const ALPACA_DATA = 'https://data.alpaca.markets'
 
+const alpacaBase    = () => getKey('alpaca_base_url') || 'https://paper-api.alpaca.markets'
 const alpacaHeaders = () => ({
-  'APCA-API-KEY-ID': process.env.ALPACA_API_KEY!,
-  'APCA-API-SECRET-KEY': process.env.ALPACA_API_SECRET!,
+  'APCA-API-KEY-ID':     getKey('alpaca_api_key')    || '',
+  'APCA-API-SECRET-KEY': getKey('alpaca_api_secret') || '',
 })
 
 export function createApiServer(): express.Application {
@@ -24,9 +31,175 @@ export function createApiServer(): express.Application {
   app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
     if (req.method === 'OPTIONS') return res.sendStatus(204)
     next()
+  })
+
+  // ── Public routes (no auth needed) ────────────────────────────────────────
+  app.post('/api/auth/login', async (req, res) => {
+    // Wrap loginHandler to add audit logging on success
+    const originalJson = res.json.bind(res)
+    res.json = (body: any) => {
+      if (body?.token) {
+        const username: string = req.body?.username || 'unknown'
+        logAudit('login', username + ' logged in', username, req).catch(() => {})
+      }
+      return originalJson(body)
+    }
+    return loginHandler(req, res)
+  })
+
+  // GET /api/health — public health check
+  app.get('/api/health', async (_req, res) => {
+    let mongodb = false
+    try {
+      const { connection } = await import('mongoose')
+      mongodb = connection.readyState === 1
+    } catch { /* ignore */ }
+
+    const anthropicKeySet = Boolean(getKey('anthropic_api_key'))
+    const openaiKeySet    = Boolean(getKey('openai_api_key'))
+    const alpacaKeySet    = Boolean(getKey('alpaca_api_key') && getKey('alpaca_api_secret'))
+
+    let lastCycleAt: string | null = null
+    try {
+      const latest = await TradeModel.findOne().sort({ timestamp: -1 }).lean()
+      lastCycleAt = latest?.timestamp?.toISOString() ?? null
+    } catch { /* ignore */ }
+
+    const status = mongodb && (anthropicKeySet || openaiKeySet) ? 'ok' : 'degraded'
+    res.json({ status, mongodb, anthropicKeySet, openaiKeySet, alpacaKeySet, lastCycleAt, uptime: process.uptime() })
+  })
+
+  // GET /api/prices/live — public live price feed
+  app.get('/api/prices/live', async (_req, res) => {
+    try {
+      const assets  = getConfig().assets
+      const result: Record<string, { price: number; change24h: number }> = {}
+
+      for (const asset of assets) {
+        try {
+          const response = await axios.get(`${ALPACA_DATA}/v1beta3/crypto/us/latest/bars`, {
+            headers: alpacaHeaders(),
+            params: { symbols: asset },
+          })
+          const bar = response.data.bars?.[asset]
+          if (bar) result[asset] = { price: bar.c, change24h: 0 }
+        } catch { /* skip asset */ }
+      }
+
+      res.json(result)
+    } catch (err: any) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  // ── All routes below require a valid JWT ──────────────────────────────────
+  app.use('/api', requireAuth)
+
+  // POST /api/auth/change-password
+  app.post('/api/auth/change-password', async (req, res) => {
+    const originalJson = res.json.bind(res)
+    res.json = (body: any) => {
+      if (body?.success) {
+        logAudit('password_changed', 'admin password changed', 'admin', req).catch(() => {})
+      }
+      return originalJson(body)
+    }
+    return changePasswordHandler(req, res)
+  })
+
+  // GET /api/agent/status
+  app.get('/api/agent/status', requireAuth, (_req, res) => {
+    res.json({ paused: isPaused() })
+  })
+
+  // POST /api/agent/pause
+  app.post('/api/agent/pause', requireAuth, (req, res) => {
+    pauseAgent()
+    logAudit('agent.pause', 'Agent paused', (req as any).user, req).catch(() => {})
+    res.json({ paused: true })
+  })
+
+  // POST /api/agent/resume
+  app.post('/api/agent/resume', requireAuth, (req, res) => {
+    resumeAgent()
+    logAudit('agent.resume', 'Agent resumed', (req as any).user, req).catch(() => {})
+    res.json({ paused: false })
+  })
+
+  // GET /api/positions — live positions from Alpaca
+  app.get('/api/positions', requireAuth, async (_req, res) => {
+    try {
+      const r = await axios.get(`${alpacaBase()}/v2/positions`, { headers: alpacaHeaders() })
+      res.json(r.data)
+    } catch {
+      res.json([])
+    }
+  })
+
+  // GET /api/agent/logs?limit=150
+  app.get('/api/agent/logs', requireAuth, (req, res) => {
+    const limit = Math.min(Number(req.query.limit ?? 150), 500)
+    res.json({ logs: getLogs(limit) })
+  })
+
+  // GET /api/keys - masked values for all stored keys
+  app.get('/api/keys', (_req, res) => {
+    res.json(getMaskedKeys())
+  })
+
+  // POST /api/keys - set a single key
+  app.post('/api/keys', async (req, res) => {
+    const { key, value } = req.body
+    if (!key || typeof value !== 'string') {
+      return res.status(400).json({ error: 'key and value required' })
+    }
+    if (!KEY_NAMES.includes(key as KeyName)) {
+      return res.status(400).json({ error: `Unknown key "${key}"` })
+    }
+    await setKey(key as KeyName, value.trim())
+    await logAudit('key_set', key + ' updated', 'admin', req)
+    console.log(`[api] Key "${key}" updated`)
+    res.json({ success: true })
+  })
+
+  // GET /api/models?provider=claude|openai - fetch available models from the provider API
+  app.get('/api/models', async (req, res) => {
+    const provider = (req.query.provider as string) || 'claude'
+
+    try {
+      if (provider === 'claude') {
+        const apiKey = getKey('anthropic_api_key')
+        if (!apiKey) return res.status(400).json({ error: 'Anthropic API key not set' })
+        const client = new Anthropic({ apiKey })
+        const page = await client.models.list({ limit: 100 })
+        const models = page.data.map((m: { id: string; display_name?: string }) => ({
+          id: m.id,
+          name: m.display_name || m.id,
+        }))
+        return res.json({ models })
+      }
+
+      if (provider === 'openai') {
+        const apiKey = getKey('openai_api_key')
+        if (!apiKey) return res.status(400).json({ error: 'OpenAI API key not set' })
+        const client = new OpenAI({ apiKey })
+        const page = await client.models.list()
+        // Filter to chat-capable models only (exclude embeddings, audio, image, tts, etc.)
+        const chatPrefixes = ['gpt-', 'o1', 'o3', 'o4']
+        const models = page.data
+          .filter(m => chatPrefixes.some(p => m.id.startsWith(p)))
+          .sort((a, b) => b.created - a.created)
+          .map(m => ({ id: m.id, name: m.id }))
+        return res.json({ models })
+      }
+
+      res.status(400).json({ error: `Unknown provider "${provider}"` })
+    } catch (err: any) {
+      res.status(500).json({ error: err.message })
+    }
   })
 
   // GET /api/trades?limit=50&page=1
@@ -79,13 +252,15 @@ export function createApiServer(): express.Application {
 
   // POST /api/trades/:id/approve - human gate
   app.post('/api/trades/:id/approve', async (req, res) => {
-    const record = await TradeModel.findById(req.params.id)
+    const id = req.params.id
+    const record = await TradeModel.findById(id)
     if (!record) return res.status(404).json({ error: 'Not found' })
     if (record.approved) return res.status(400).json({ error: 'Already approved' })
 
     try {
       const result = await executeOrder(record.decision)
       await markExecuted(record._id.toString(), result.order_id)
+      await logAudit('trade_approved', id, 'admin', req)
       res.json({ success: true, order: result })
     } catch (err: any) {
       res.status(500).json({ error: err.message })
@@ -94,7 +269,9 @@ export function createApiServer(): express.Application {
 
   // POST /api/trades/:id/reject - dismiss without executing
   app.post('/api/trades/:id/reject', async (req, res) => {
-    await TradeModel.findByIdAndUpdate(req.params.id, { approved: true, executed: false })
+    const id = req.params.id
+    await TradeModel.findByIdAndUpdate(id, { approved: true, executed: false })
+    await logAudit('trade_rejected', id, 'admin', req)
     res.json({ success: true })
   })
 
@@ -109,6 +286,7 @@ export function createApiServer(): express.Application {
     if (typeof autoApprove !== 'boolean') {
       return res.status(400).json({ error: 'autoApprove must be a boolean' })
     }
+    await logAudit('config_change', JSON.stringify(req.body), 'admin', req)
     const updated = await setConfig({ autoApprove })
     console.log(`[api] autoApprove set to ${autoApprove}`)
 
@@ -194,7 +372,7 @@ export function createApiServer(): express.Application {
   // GET /api/assets/available - all tradeable crypto assets from Alpaca
   app.get('/api/assets/available', async (req, res) => {
     try {
-      const response = await axios.get(`${ALPACA_BASE}/v2/assets`, {
+      const response = await axios.get(`${alpacaBase()}/v2/assets`, {
         headers: alpacaHeaders(),
         params: { asset_class: 'crypto', status: 'active' },
       })
@@ -268,8 +446,8 @@ export function createApiServer(): express.Application {
   app.get('/api/portfolio/detail', async (req, res) => {
     try {
       const [accountRes, positionsRes] = await Promise.all([
-        axios.get(`${ALPACA_BASE}/v2/account`, { headers: alpacaHeaders() }),
-        axios.get(`${ALPACA_BASE}/v2/positions`, { headers: alpacaHeaders() }),
+        axios.get(`${alpacaBase()}/v2/account`, { headers: alpacaHeaders() }),
+        axios.get(`${alpacaBase()}/v2/positions`, { headers: alpacaHeaders() }),
       ])
       const cash = parseFloat(accountRes.data.cash)
       const equity = parseFloat(accountRes.data.equity)
@@ -312,7 +490,7 @@ export function createApiServer(): express.Application {
   app.get('/api/risk/status', async (req, res) => {
     try {
       const [accountRes] = await Promise.all([
-        axios.get(`${ALPACA_BASE}/v2/account`, { headers: alpacaHeaders() }),
+        axios.get(`${alpacaBase()}/v2/account`, { headers: alpacaHeaders() }),
       ])
       const equity = parseFloat(accountRes.data.equity)
       const { getRiskStatus } = await import('./risk')
@@ -395,17 +573,157 @@ export function createApiServer(): express.Application {
 
   // POST /api/config/risk - update risk + LLM settings
   app.post('/api/config/risk', async (req, res) => {
-    const { stopLossPct, takeProfitPct, maxDrawdownPct, maxOpenPositions, claudeModel, cycleMinutes } = req.body
+    const { stopLossPct, takeProfitPct, maxDrawdownPct, maxOpenPositions, claudeModel, cycleMinutes,
+            confidenceThreshold, kellyEnabled, consensusMode, consensusModel,
+            trailingStopEnabled, trailingStopPct } = req.body
     const updates: any = {}
-    if (typeof stopLossPct === 'number')      updates.stopLossPct = stopLossPct
-    if (typeof takeProfitPct === 'number')    updates.takeProfitPct = takeProfitPct
-    if (typeof maxDrawdownPct === 'number')   updates.maxDrawdownPct = maxDrawdownPct
-    if (typeof maxOpenPositions === 'number') updates.maxOpenPositions = maxOpenPositions
-    if (typeof claudeModel === 'string')      updates.claudeModel = claudeModel
-    if (typeof cycleMinutes === 'number')     updates.cycleMinutes = cycleMinutes
+    if (typeof stopLossPct === 'number')           updates.stopLossPct           = stopLossPct
+    if (typeof takeProfitPct === 'number')         updates.takeProfitPct         = takeProfitPct
+    if (typeof maxDrawdownPct === 'number')        updates.maxDrawdownPct        = maxDrawdownPct
+    if (typeof maxOpenPositions === 'number')      updates.maxOpenPositions      = maxOpenPositions
+    if (typeof claudeModel === 'string')           updates.claudeModel           = claudeModel
+    if (typeof cycleMinutes === 'number')          updates.cycleMinutes          = cycleMinutes
+    if (typeof confidenceThreshold === 'number')   updates.confidenceThreshold   = confidenceThreshold
+    if (typeof kellyEnabled === 'boolean')         updates.kellyEnabled          = kellyEnabled
+    if (typeof consensusMode === 'boolean')        updates.consensusMode         = consensusMode
+    if (typeof consensusModel === 'string')        updates.consensusModel        = consensusModel
+    if (typeof trailingStopEnabled === 'boolean')  updates.trailingStopEnabled   = trailingStopEnabled
+    if (typeof trailingStopPct === 'number')       updates.trailingStopPct       = trailingStopPct
+    await logAudit('config_change', JSON.stringify(req.body), 'admin', req)
     const updated = await setConfig(updates)
     console.log('[api] Config updated:', updates)
     res.json(updated)
+  })
+
+  // GET /api/audit?limit=100
+  app.get('/api/audit', async (req, res) => {
+    const limit = Math.min(parseInt(req.query.limit as string) || 100, 500)
+    const events = await AuditLogModel.find().sort({ ts: -1 }).limit(limit).lean()
+    res.json({ events })
+  })
+
+  // GET /api/prompt
+  app.get('/api/prompt', async (_req, res) => {
+    const doc = await PromptModel.findOne({ key: 'system_prompt' }).lean()
+    res.json({ systemPrompt: doc?.value ?? null })
+  })
+
+  // POST /api/prompt
+  app.post('/api/prompt', async (req, res) => {
+    const { systemPrompt } = req.body
+    if (typeof systemPrompt !== 'string') {
+      return res.status(400).json({ error: 'systemPrompt must be a string' })
+    }
+    await PromptModel.findOneAndUpdate(
+      { key: 'system_prompt' },
+      { value: systemPrompt, updatedAt: new Date() },
+      { upsert: true, returnDocument: 'after' }
+    )
+    res.json({ success: true })
+  })
+
+  // DELETE /api/prompt
+  app.delete('/api/prompt', async (_req, res) => {
+    await PromptModel.deleteOne({ key: 'system_prompt' })
+    res.json({ success: true })
+  })
+
+  // POST /api/backtest
+  app.post('/api/backtest', async (req, res) => {
+    const { assets, startDate, endDate, cycleHours, mode, model } = req.body
+    if (!Array.isArray(assets) || !startDate || !endDate) {
+      return res.status(400).json({ error: 'assets, startDate, endDate are required' })
+    }
+    try {
+      const { runBacktest } = await import('./backtest')
+      const result = await runBacktest({
+        assets,
+        startDate,
+        endDate,
+        cycleHours: typeof cycleHours === 'number' ? cycleHours : 24,
+        model:      typeof model === 'string' ? model : getConfig().claudeModel,
+        mode:       mode === 'llm' ? 'llm' : 'rules',
+        startEquity:    10000,
+        maxPositionUsd: 500,
+      })
+      res.json(result)
+    } catch (err: any) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  // GET /api/backtest/results
+  app.get('/api/backtest/results', async (_req, res) => {
+    const results = await BacktestResultModel.find()
+      .sort({ runAt: -1 })
+      .select('-trades')
+      .lean()
+    res.json(results)
+  })
+
+  // GET /api/equity/benchmark
+  app.get('/api/equity/benchmark', async (_req, res) => {
+    try {
+      const history = await EquityModel.find().sort({ ts: 1 }).lean()
+      if (!history.length) return res.json({ points: [], benchmarkAsset: 'BTC/USD' })
+
+      const firstSnap = history[0]
+      const firstTs   = new Date(firstSnap.ts).toISOString()
+
+      // Fetch BTC/USD hourly bars from the start date to now
+      const btcResponse = await axios.get(`${ALPACA_DATA}/v1beta3/crypto/us/bars`, {
+        headers: alpacaHeaders(),
+        params: { symbols: 'BTC/USD', timeframe: '1H', start: firstTs, limit: 1000 },
+      })
+      const btcBars: any[] = btcResponse.data.bars?.['BTC/USD'] || []
+      if (!btcBars.length) return res.json({ points: [], benchmarkAsset: 'BTC/USD' })
+
+      const btcStartPrice = btcBars[0].c
+      const startEquity   = firstSnap.equity
+
+      // Build a map: timestamp (hour) → btc price
+      const btcPriceMap = new Map<number, number>()
+      for (const bar of btcBars) {
+        const hour = Math.floor(new Date(bar.t).getTime() / 3_600_000) * 3_600_000
+        btcPriceMap.set(hour, bar.c)
+      }
+
+      // Align equity history with BTC benchmark
+      const points = history.map(snap => {
+        const hour     = Math.floor(new Date(snap.ts).getTime() / 3_600_000) * 3_600_000
+        const btcPrice = btcPriceMap.get(hour) ?? btcBars[btcBars.length - 1].c
+        const benchmark = startEquity * (btcPrice / btcStartPrice)
+        return { ts: snap.ts, equity: snap.equity, benchmark: parseFloat(benchmark.toFixed(2)) }
+      })
+
+      res.json({ points, benchmarkAsset: 'BTC/USD' })
+    } catch (err: any) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  // GET /api/trades/reasoning?asset=&action=&outcome=correct|incorrect&limit=50&page=1
+  app.get('/api/trades/reasoning', async (req, res) => {
+    const limit  = Math.min(parseInt(req.query.limit as string) || 50, 200)
+    const page   = parseInt(req.query.page as string) || 1
+    const filter: Record<string, any> = {}
+
+    if (req.query.asset)  filter['decision.asset']  = req.query.asset
+    if (req.query.action) filter['decision.action'] = req.query.action
+    if (req.query.outcome === 'correct')   filter['outcome.correct'] = true
+    if (req.query.outcome === 'incorrect') filter['outcome.correct'] = false
+
+    const [trades, total] = await Promise.all([
+      TradeModel.find(filter)
+        .sort({ timestamp: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .select('timestamp decision outcome executed approved')
+        .lean(),
+      TradeModel.countDocuments(filter),
+    ])
+
+    res.json({ trades, total, page, limit })
   })
 
   return app

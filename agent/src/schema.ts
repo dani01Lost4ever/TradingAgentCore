@@ -86,12 +86,25 @@ export interface ConfigRecord extends Document {
   key: string
   autoApprove: boolean
   assets: string[]
+  [key: string]: any
 }
 
 const ConfigSchema = new Schema<ConfigRecord>({
-  key:         { type: String, default: 'agent', unique: true },
-  autoApprove: { type: Boolean, default: false },
-  assets:      { type: [String], default: [] },
+  key:                 { type: String, default: 'agent', unique: true },
+  autoApprove:         { type: Boolean, default: false },
+  assets:              { type: [String], default: [] },
+  stopLossPct:         { type: Number, default: 5 },
+  takeProfitPct:       { type: Number, default: 10 },
+  maxDrawdownPct:      { type: Number, default: 10 },
+  maxOpenPositions:    { type: Number, default: 3 },
+  claudeModel:         { type: String, default: '' },
+  cycleMinutes:        { type: Number, default: 30 },
+  confidenceThreshold: { type: Number, default: 0 },
+  kellyEnabled:        { type: Boolean, default: false },
+  consensusMode:       { type: Boolean, default: false },
+  consensusModel:      { type: String, default: '' },
+  trailingStopEnabled: { type: Boolean, default: false },
+  trailingStopPct:     { type: Number, default: 2.5 },
 })
 
 export const ConfigModel = mongoose.model<ConfigRecord>('Config', ConfigSchema)
@@ -133,3 +146,92 @@ const TokenUsageSchema = new Schema<TokenUsageDoc>({
 })
 
 export const TokenUsageModel = mongoose.model<TokenUsageDoc>('TokenUsage', TokenUsageSchema)
+
+// ─── Users (for auth) ────────────────────────────────────────────────────────
+export interface UserDoc extends Document {
+  username: string
+  passwordHash: string
+}
+
+const UserSchema = new Schema<UserDoc>({
+  username:     { type: String, required: true, unique: true },
+  passwordHash: { type: String, required: true },
+})
+
+export const UserModel = mongoose.model<UserDoc>('User', UserSchema)
+
+// ─── API Keys (stored in DB, editable from dashboard) ────────────────────────
+export interface ApiKeyDoc extends Document {
+  key: string
+  value: string
+}
+
+const ApiKeySchema = new Schema<ApiKeyDoc>({
+  key:   { type: String, required: true, unique: true },
+  value: { type: String, required: true },
+})
+
+export const ApiKeyModel = mongoose.model<ApiKeyDoc>('ApiKey', ApiKeySchema)
+
+// BacktestResult
+export interface BacktestTradeDoc {
+  ts: Date; asset: string; action: 'buy'|'sell'|'hold'
+  price: number; amount_usd: number; confidence: number; pnl_usd: number
+}
+export interface BacktestResultDoc extends Document {
+  runAt: Date
+  params: { assets: string[]; startDate: string; endDate: string; cycleHours: number; model: string; mode: 'rules'|'llm' }
+  trades: BacktestTradeDoc[]
+  startEquity: number; finalEquity: number
+  totalReturn: number; maxDrawdown: number; winRate: number; totalTrades: number
+  sharpe?: number
+  sortino?: number
+}
+const BacktestResultSchema = new Schema<BacktestResultDoc>({
+  runAt: { type: Date, default: Date.now },
+  params: Schema.Types.Mixed,
+  trades: [Schema.Types.Mixed],
+  startEquity: Number, finalEquity: Number,
+  totalReturn: Number, maxDrawdown: Number, winRate: Number, totalTrades: Number,
+  sharpe: Number, sortino: Number,
+})
+export const BacktestResultModel = mongoose.model<BacktestResultDoc>('BacktestResult', BacktestResultSchema)
+
+// ─── PositionHigh (trailing stop high water marks) ────────────────────────────
+export interface PositionHighDoc extends Document {
+  asset: string
+  tradeId: string
+  highPrice: number
+  updatedAt: Date
+}
+const PositionHighSchema = new Schema<PositionHighDoc>({
+  asset:     { type: String, required: true },
+  tradeId:   { type: String, required: true, unique: true },
+  highPrice: { type: Number, required: true },
+  updatedAt: { type: Date, default: Date.now },
+})
+export const PositionHighModel = mongoose.model<PositionHighDoc>('PositionHigh', PositionHighSchema)
+
+// AuditLog
+export interface AuditLogDoc extends Document {
+  ts: Date; user: string; action: string; details: string; ip?: string
+}
+const AuditLogSchema = new Schema<AuditLogDoc>({
+  ts: { type: Date, default: Date.now, index: true },
+  user: { type: String, default: 'system' },
+  action: { type: String, required: true },
+  details: String,
+  ip: String,
+})
+export const AuditLogModel = mongoose.model<AuditLogDoc>('AuditLog', AuditLogSchema)
+
+// PromptRecord (stores custom system prompt)
+export interface PromptDoc extends Document {
+  key: string; value: string; updatedAt: Date
+}
+const PromptSchema = new Schema<PromptDoc>({
+  key: { type: String, required: true, unique: true },
+  value: { type: String, required: true },
+  updatedAt: { type: Date, default: Date.now },
+})
+export const PromptModel = mongoose.model<PromptDoc>('Prompt', PromptSchema)

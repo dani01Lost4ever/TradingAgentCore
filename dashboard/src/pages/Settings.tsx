@@ -2,12 +2,34 @@ import { useState, useEffect } from 'react'
 import { THEMES, applyTheme, getTheme } from '../theme'
 import type { Theme } from '../theme'
 import { api } from '../api'
+import type { KeyName, MaskedKeys } from '../api'
 
-// ── Model catalogue with pricing ───────────────────────────────────────────
-const MODELS = [
-  { id: 'claude-3-5-haiku-20241022',  label: 'Haiku 3.5',  inputPer1M: 0.80, outputPer1M: 4.00,  note: 'Recommended — fastest & cheapest' },
-  { id: 'claude-sonnet-4-20250514',   label: 'Sonnet 4',   inputPer1M: 3.00, outputPer1M: 15.00, note: 'Balanced capability/cost' },
-  { id: 'claude-opus-4-20250514',     label: 'Opus 4',     inputPer1M: 15.00,outputPer1M: 75.00, note: 'Most capable — very expensive' },
+// ── Prompt editor state type ─────────────────────────────────────────────────
+// (defined at module level so it can be referenced from component)
+
+// ── Known pricing (USD per 1M tokens) — used for cost estimation ─────────────
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  'claude-haiku-4-5-20251001': { input: 0.80,  output:  4.00 },
+  'claude-sonnet-4-20250514':  { input: 3.00,  output: 15.00 },
+  'claude-opus-4-20250514':    { input: 15.00, output: 75.00 },
+  'gpt-4o-mini':               { input: 0.15,  output:  0.60 },
+  'gpt-4o':                    { input: 2.50,  output: 10.00 },
+  'o3-mini':                   { input: 1.10,  output:  4.40 },
+  'o1':                        { input: 15.00, output: 60.00 },
+  'o1-mini':                   { input: 1.10,  output:  4.40 },
+}
+
+// Fallback static lists used before/if API fetch fails
+const FALLBACK_CLAUDE = [
+  { id: 'claude-haiku-4-5-20251001', name: 'Claude Haiku 4.5' },
+  { id: 'claude-sonnet-4-20250514',  name: 'Claude Sonnet 4' },
+  { id: 'claude-opus-4-20250514',    name: 'Claude Opus 4' },
+]
+const FALLBACK_OPENAI = [
+  { id: 'gpt-4o-mini', name: 'gpt-4o-mini' },
+  { id: 'gpt-4o',      name: 'gpt-4o' },
+  { id: 'o3-mini',     name: 'o3-mini' },
+  { id: 'o1',          name: 'o1' },
 ]
 
 const CYCLE_OPTIONS = [
@@ -18,19 +40,30 @@ const CYCLE_OPTIONS = [
   { value: 240, label: '4 hours' },
 ]
 
-// Approximate tokens per call (adjust if your prompt size differs)
-const AVG_INPUT_TOKENS  = 3400
-const AVG_OUTPUT_TOKENS = 350   // shorter with 15-word reasoning rule
-
-function estimateMonthlyCost(modelId: string, cycleMinutes: number): number {
-  const model = MODELS.find(m => m.id === modelId) ?? MODELS[0]
-  const callsPerMonth = (60 / cycleMinutes) * 24 * 30
-  const inputCost  = (AVG_INPUT_TOKENS  / 1_000_000) * model.inputPer1M
-  const outputCost = (AVG_OUTPUT_TOKENS / 1_000_000) * model.outputPer1M
-  return (inputCost + outputCost) * callsPerMonth
+const KEY_LABELS: Record<KeyName, string> = {
+  anthropic_api_key: 'ANTHROPIC API KEY',
+  openai_api_key:    'OPENAI API KEY',
+  alpaca_api_key:    'ALPACA API KEY',
+  alpaca_api_secret: 'ALPACA API SECRET',
+  alpaca_base_url:   'ALPACA BASE URL',
 }
 
-// ── small reusable inputs ──────────────────────────────────────────────────
+const KEY_ORDER: KeyName[] = ['anthropic_api_key', 'openai_api_key', 'alpaca_api_key', 'alpaca_api_secret', 'alpaca_base_url']
+
+const AVG_INPUT_TOKENS  = 3400
+const AVG_OUTPUT_TOKENS = 350
+
+function estimateMonthlyCost(modelId: string, cycleMinutes: number): number {
+  const pricing = MODEL_PRICING[modelId] ?? { input: 3.00, output: 15.00 }
+  const callsPerMonth = (60 / cycleMinutes) * 24 * 30
+  return ((AVG_INPUT_TOKENS / 1_000_000) * pricing.input + (AVG_OUTPUT_TOKENS / 1_000_000) * pricing.output) * callsPerMonth
+}
+
+function isOpenAIModel(id: string) {
+  return id.startsWith('gpt-') || id.startsWith('o1') || id.startsWith('o3')
+}
+
+// ── Reusable inputs ───────────────────────────────────────────────────────────
 function NumInput({ label, value, onChange, min, max, step = 0.5, unit = '%', help }: {
   label: string; value: number; onChange: (v: number) => void
   min?: number; max?: number; step?: number; unit?: string; help?: string
@@ -71,33 +104,183 @@ function Select({ label, value, onChange, options, help }: {
   )
 }
 
-// ── main component ─────────────────────────────────────────────────────────
+// ── API Key row component ─────────────────────────────────────────────────────
+function KeyRow({ name, masked, onSave }: { name: KeyName; masked: string; onSave: (name: KeyName, value: string) => Promise<void> }) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue]     = useState('')
+  const [saving, setSaving]   = useState(false)
+  const [saved, setSaved]     = useState(false)
+
+  const handleSave = async () => {
+    if (!value.trim()) return
+    setSaving(true)
+    try {
+      await onSave(name, value.trim())
+      setSaved(true)
+      setEditing(false)
+      setValue('')
+      setTimeout(() => setSaved(false), 3000)
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ minWidth: 170, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>
+        {KEY_LABELS[name]}
+      </div>
+      {editing ? (
+        <>
+          <input
+            type={name === 'alpaca_base_url' ? 'url' : 'password'}
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            placeholder={name === 'alpaca_base_url' ? 'https://paper-api.alpaca.markets' : 'Paste new value...'}
+            autoFocus
+            style={{
+              flex: 1, padding: '6px 10px', background: 'var(--bg3)', border: '1px solid var(--accent)',
+              borderRadius: 4, color: 'var(--text)', fontFamily: 'var(--font-mono)', fontSize: 12, outline: 'none',
+            }}
+          />
+          <button onClick={handleSave} disabled={saving || !value.trim()} style={{
+            padding: '6px 14px', background: 'var(--accent)', color: '#000', border: 'none', borderRadius: 4,
+            fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+          }}>
+            {saving ? 'SAVING...' : 'SAVE'}
+          </button>
+          <button onClick={() => { setEditing(false); setValue('') }} style={{
+            padding: '6px 10px', background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border2)',
+            borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer',
+          }}>
+            CANCEL
+          </button>
+        </>
+      ) : (
+        <>
+          <span style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12, color: masked ? 'var(--text)' : 'var(--muted)' }}>
+            {masked || '— not set —'}
+          </span>
+          {saved && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--green)' }}>✓ Saved</span>}
+          <button onClick={() => setEditing(true)} style={{
+            padding: '5px 12px', background: 'transparent', color: 'var(--accent)', border: '1px solid rgba(var(--accent-rgb,0,212,170),0.3)',
+            borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: 10, cursor: 'pointer', whiteSpace: 'nowrap',
+          }}>
+            {masked ? 'UPDATE' : 'SET'}
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 export function Settings() {
   const [currentTheme, setCurrentTheme] = useState<Theme>(getTheme())
 
   const [cfg, setCfg] = useState({
     stopLossPct: 5, takeProfitPct: 10, maxDrawdownPct: 10, maxOpenPositions: 3,
-    claudeModel: 'claude-3-5-haiku-20241022', cycleMinutes: 30,
+    claudeModel: 'claude-haiku-4-5-20251001', cycleMinutes: 30,
+    confidenceThreshold: 0, kellyEnabled: false, consensusMode: false, consensusModel: '',
+    trailingStopEnabled: false, trailingStopPct: 2.5,
   })
+
+  // Prompt editor state
+  const [customPrompt, setCustomPrompt]   = useState<string | null>(null)
+  const [promptText, setPromptText]       = useState('')
+  const [promptSaving, setPromptSaving]   = useState(false)
+  const [promptMsg, setPromptMsg]         = useState<{ ok: boolean; text: string } | null>(null)
   const [loading, setLoading]   = useState(true)
   const [saving, setSaving]     = useState(false)
   const [saved, setSaved]       = useState(false)
   const [saveErr, setSaveErr]   = useState<string | null>(null)
 
+  // API keys
+  const [keys, setKeys]         = useState<MaskedKeys | null>(null)
+  const [keysErr, setKeysErr]   = useState<string | null>(null)
+
+  // Password change
+  const [pwCurrent, setPwCurrent] = useState('')
+  const [pwNew, setPwNew]         = useState('')
+  const [pwConfirm, setPwConfirm] = useState('')
+  const [pwSaving, setPwSaving]   = useState(false)
+  const [pwMsg, setPwMsg]         = useState<{ ok: boolean; text: string } | null>(null)
+
+  // Provider + dynamic model list
+  const [provider, setProvider]       = useState<'claude' | 'openai'>('claude')
+  const [modelList, setModelList]     = useState<{ id: string; name: string }[]>([])
+  const [modelsLoading, setModelsLoading] = useState(false)
+  const [modelsError, setModelsError] = useState<string | null>(null)
+
+  const loadModels = async (p: 'claude' | 'openai') => {
+    setModelsLoading(true)
+    setModelsError(null)
+    try {
+      const { models } = await api.fetchModels(p)
+      setModelList(models)
+    } catch (e: any) {
+      setModelsError(e.message)
+      setModelList(p === 'openai' ? FALLBACK_OPENAI : FALLBACK_CLAUDE)
+    } finally {
+      setModelsLoading(false)
+    }
+  }
+
   useEffect(() => {
-    api.getConfig().then(c => {
+    Promise.all([
+      api.getConfig(),
+      api.getKeys(),
+    ]).then(([c, k]) => {
+      const det = isOpenAIModel(c.claudeModel ?? '') ? 'openai' : 'claude'
+      setProvider(det)
       setCfg({
-        stopLossPct:      c.stopLossPct      ?? 5,
-        takeProfitPct:    c.takeProfitPct    ?? 10,
-        maxDrawdownPct:   c.maxDrawdownPct   ?? 10,
-        maxOpenPositions: c.maxOpenPositions ?? 3,
-        claudeModel:      c.claudeModel      ?? 'claude-3-5-haiku-20241022',
-        cycleMinutes:     c.cycleMinutes     ?? 30,
+        stopLossPct:          c.stopLossPct          ?? 5,
+        takeProfitPct:        c.takeProfitPct        ?? 10,
+        maxDrawdownPct:       c.maxDrawdownPct        ?? 10,
+        maxOpenPositions:     c.maxOpenPositions      ?? 3,
+        claudeModel:          c.claudeModel           ?? 'claude-haiku-4-5-20251001',
+        cycleMinutes:         c.cycleMinutes          ?? 30,
+        confidenceThreshold:  c.confidenceThreshold   ?? 0,
+        kellyEnabled:         c.kellyEnabled          ?? false,
+        consensusMode:        c.consensusMode         ?? false,
+        consensusModel:       c.consensusModel        ?? '',
+        trailingStopEnabled:  c.trailingStopEnabled   ?? false,
+        trailingStopPct:      c.trailingStopPct       ?? 2.5,
       })
-    }).catch(() => {}).finally(() => setLoading(false))
+      setKeys(k)
+      loadModels(det)
+    }).catch(e => setKeysErr(e.message))
+      .finally(() => setLoading(false))
+
+    // Load custom prompt
+    api.getPrompt().then(({ systemPrompt }) => {
+      if (systemPrompt) { setCustomPrompt(systemPrompt); setPromptText(systemPrompt) }
+    }).catch(() => {})
   }, [])
 
   const patch = (key: keyof typeof cfg) => (v: any) => setCfg(prev => ({ ...prev, [key]: v }))
+
+  const handleSavePrompt = async () => {
+    setPromptSaving(true); setPromptMsg(null)
+    try {
+      await api.setPrompt(promptText)
+      setCustomPrompt(promptText)
+      setPromptMsg({ ok: true, text: 'Prompt saved' })
+      setTimeout(() => setPromptMsg(null), 3000)
+    } catch (e: any) {
+      setPromptMsg({ ok: false, text: e.message || 'Failed to save prompt' })
+    } finally { setPromptSaving(false) }
+  }
+
+  const handleResetPrompt = async () => {
+    setPromptSaving(true); setPromptMsg(null)
+    try {
+      await api.deletePrompt()
+      setCustomPrompt(null); setPromptText('')
+      setPromptMsg({ ok: true, text: 'Prompt reset to default' })
+      setTimeout(() => setPromptMsg(null), 3000)
+    } catch (e: any) {
+      setPromptMsg({ ok: false, text: e.message || 'Failed to reset prompt' })
+    } finally { setPromptSaving(false) }
+  }
 
   const handleSave = async () => {
     setSaving(true); setSaveErr(null); setSaved(false)
@@ -110,32 +293,103 @@ export function Settings() {
     } finally { setSaving(false) }
   }
 
+  const handleKeyUpdate = async (name: KeyName, value: string) => {
+    await api.setKey(name, value)
+    setKeys(prev => prev ? { ...prev, [name]: name === 'alpaca_base_url' ? value : `***${value.slice(-4)}` } : prev)
+  }
+
+  const handlePasswordChange = async () => {
+    setPwMsg(null)
+    if (pwNew !== pwConfirm) { setPwMsg({ ok: false, text: 'New passwords do not match' }); return }
+    if (pwNew.length < 6)    { setPwMsg({ ok: false, text: 'Password must be at least 6 characters' }); return }
+    setPwSaving(true)
+    try {
+      await api.changePassword(pwCurrent, pwNew)
+      setPwMsg({ ok: true, text: 'Password changed successfully' })
+      setPwCurrent(''); setPwNew(''); setPwConfirm('')
+    } catch (e: any) {
+      setPwMsg({ ok: false, text: e.message || 'Failed to change password' })
+    } finally { setPwSaving(false) }
+  }
+
   const monthlyCost   = estimateMonthlyCost(cfg.claudeModel, cfg.cycleMinutes)
-  const selectedModel = MODELS.find(m => m.id === cfg.claudeModel)
+  const pricing       = MODEL_PRICING[cfg.claudeModel]
+  const selectedModel = modelList.find(m => m.id === cfg.claudeModel)
+
+  const pwInputStyle: React.CSSProperties = {
+    flex: 1, padding: '6px 10px', background: 'var(--bg3)', border: '1px solid var(--border2)',
+    borderRadius: 4, color: 'var(--text)', fontFamily: 'var(--font-mono)', fontSize: 13, outline: 'none',
+  }
 
   return (
     <div style={{ padding: '28px', maxWidth: 780, margin: '0 auto' }}>
 
-      {/* ── Header ── */}
       <div style={{ marginBottom: 32 }}>
         <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, letterSpacing: '0.04em', color: 'var(--accent)', marginBottom: 6 }}>SETTINGS</h2>
         <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>Agent configuration, risk limits and dashboard preferences.</p>
       </div>
 
-      {/* ── LLM & Cycle ── */}
+      {/* ── API Keys ── */}
+      <section style={{ marginBottom: 36 }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 16 }}>API KEYS</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 20px 16px' }}>
+          {loading ? (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', padding: '12px 0' }}>Loading...</div>
+          ) : keysErr ? (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--danger)', padding: '12px 0' }}>{keysErr}</div>
+          ) : keys ? (
+            <>
+              {KEY_ORDER.map(name => (
+                <KeyRow key={name} name={name} masked={keys[name]} onSave={handleKeyUpdate} />
+              ))}
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', marginTop: 12, lineHeight: 1.6, opacity: 0.7 }}>
+                Keys are stored encrypted in MongoDB. Environment variables take precedence if set.
+              </div>
+            </>
+          ) : null}
+        </div>
+      </section>
+
+      {/* ── LLM Provider & Model ── */}
       <section style={{ marginBottom: 36 }}>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 16 }}>LLM MODEL &amp; CYCLE</div>
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
           {loading ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>Loading...</div> : (<>
 
+            {/* Provider toggle */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 20, alignItems: 'center' }}>
+              {(['claude', 'openai'] as const).map(p => (
+                <button key={p} onClick={() => {
+                  setProvider(p)
+                  loadModels(p)
+                  const fallback = p === 'openai' ? FALLBACK_OPENAI[0] : FALLBACK_CLAUDE[0]
+                  patch('claudeModel')(fallback.id)
+                }} style={{
+                  padding: '7px 20px', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 11,
+                  fontWeight: provider === p ? 700 : 400, cursor: 'pointer',
+                  background: provider === p ? 'var(--accent)' : 'var(--bg3)',
+                  color: provider === p ? '#000' : 'var(--muted)',
+                  border: `1px solid ${provider === p ? 'var(--accent)' : 'var(--border2)'}`,
+                  letterSpacing: '0.06em',
+                }}>
+                  {p === 'claude' ? 'Anthropic Claude' : 'OpenAI'}
+                </button>
+              ))}
+              <button
+                onClick={() => loadModels(provider)}
+                disabled={modelsLoading}
+                title="Refresh model list from API"
+                style={{
+                  marginLeft: 4, padding: '7px 10px', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 13,
+                  background: 'transparent', color: modelsLoading ? 'var(--muted)' : 'var(--accent)',
+                  border: '1px solid var(--border2)', cursor: modelsLoading ? 'wait' : 'pointer',
+                }}
+              >
+                ↻
+              </button>
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-              <Select
-                label="CLAUDE MODEL"
-                value={cfg.claudeModel}
-                onChange={patch('claudeModel')}
-                options={MODELS.map(m => ({ value: m.id, label: `${m.label} — $${m.inputPer1M}/$${m.outputPer1M} per 1M` }))}
-                help={selectedModel?.note}
-              />
               <Select
                 label="CYCLE INTERVAL"
                 value={cfg.cycleMinutes}
@@ -145,7 +399,7 @@ export function Settings() {
               />
             </div>
 
-            {/* Cost estimate banner */}
+            {/* Cost estimate */}
             <div style={{
               background: monthlyCost < 5 ? 'rgba(34,197,94,0.07)' : monthlyCost < 20 ? 'rgba(245,158,11,0.07)' : 'rgba(239,68,68,0.07)',
               border: `1px solid ${monthlyCost < 5 ? 'var(--green)' : monthlyCost < 20 ? 'var(--warn)' : 'var(--danger)'}`,
@@ -166,43 +420,64 @@ export function Settings() {
                   ≈ {(60 / cfg.cycleMinutes * 24 * 30).toFixed(0)} calls/month · ~{AVG_INPUT_TOKENS.toLocaleString()} in + ~{AVG_OUTPUT_TOKENS} out tokens per call
                 </div>
               </div>
-              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', maxWidth: 220, lineHeight: 1.5 }}>
-                Actual cost depends on prompt size (number of active assets) and output length. Visit the <span style={{ color: 'var(--accent)' }}>Cost</span> page for real usage.
-              </div>
+              {pricing && (
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
+                  {selectedModel?.name ?? cfg.claudeModel} · ${pricing.input}/${pricing.output} per 1M
+                </div>
+              )}
             </div>
 
-            {/* Model comparison table */}
-            <div style={{ marginBottom: 20, background: 'var(--bg3)', borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border)' }}>
-              {MODELS.map((m, i, arr) => {
-                const est = estimateMonthlyCost(m.id, cfg.cycleMinutes)
-                const isSelected = m.id === cfg.claudeModel
-                return (
-                  <div key={m.id} onClick={() => patch('claudeModel')(m.id)} style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '10px 14px', cursor: 'pointer',
-                    background: isSelected ? 'rgba(var(--accent-rgb,0,212,170),0.08)' : 'transparent',
-                    borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
-                    transition: 'background 0.1s',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: isSelected ? 'var(--accent)' : 'var(--border2)', flexShrink: 0 }} />
-                      <div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: isSelected ? 'var(--accent)' : 'var(--text)', fontWeight: isSelected ? 700 : 400 }}>{m.label}</div>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>{m.note}</div>
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: est < 5 ? 'var(--green)' : est < 20 ? 'var(--warn)' : 'var(--danger)', fontWeight: 600 }}>
-                        ~${est.toFixed(2)}/mo
-                      </div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>
-                        ${m.inputPer1M}/${m.outputPer1M} per 1M
-                      </div>
-                    </div>
+            {/* Model list */}
+            {modelsLoading ? (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', padding: '16px 0', textAlign: 'center' }}>
+                Fetching models from API...
+              </div>
+            ) : (
+              <>
+                {modelsError && (
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--warn)', marginBottom: 8 }}>
+                    ⚠ Could not fetch live models ({modelsError}) — showing fallback list
                   </div>
-                )
-              })}
-            </div>
+                )}
+                <div style={{ background: 'var(--bg3)', borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden', maxHeight: 360, overflowY: 'auto' }}>
+                  {modelList.map((m, i, arr) => {
+                    const est       = estimateMonthlyCost(m.id, cfg.cycleMinutes)
+                    const p         = MODEL_PRICING[m.id]
+                    const isSelected = m.id === cfg.claudeModel
+                    return (
+                      <div key={m.id} onClick={() => patch('claudeModel')(m.id)} style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        padding: '9px 14px', cursor: 'pointer',
+                        background: isSelected ? 'rgba(var(--accent-rgb,0,212,170),0.08)' : 'transparent',
+                        borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none',
+                        transition: 'background 0.1s',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: isSelected ? 'var(--accent)' : 'var(--border2)' }} />
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: isSelected ? 'var(--accent)' : 'var(--text)', fontWeight: isSelected ? 700 : 400 }}>
+                            {m.name}
+                          </span>
+                        </div>
+                        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                          {p ? (
+                            <>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: est < 5 ? 'var(--green)' : est < 20 ? 'var(--warn)' : 'var(--danger)', fontWeight: 600 }}>
+                                ~${est.toFixed(2)}/mo
+                              </div>
+                              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>
+                                ${p.input}/${p.output} per 1M
+                              </div>
+                            </>
+                          ) : (
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>pricing varies</span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </>
+            )}
           </>)}
         </div>
       </section>
@@ -213,15 +488,198 @@ export function Settings() {
         <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
           {loading ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>Loading...</div> : (<>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px,1fr))', gap: 20, marginBottom: 20 }}>
-              <NumInput label="STOP LOSS" value={cfg.stopLossPct} onChange={patch('stopLossPct')} min={0.5} max={50} step={0.5} help="Close if price drops this % from entry" />
-              <NumInput label="TAKE PROFIT" value={cfg.takeProfitPct} onChange={patch('takeProfitPct')} min={0.5} max={200} step={0.5} help="Close if price rises this % from entry" />
-              <NumInput label="MAX DAILY DRAWDOWN" value={cfg.maxDrawdownPct} onChange={patch('maxDrawdownPct')} min={1} max={100} step={1} help="Circuit breaker daily equity drop limit" />
-              <NumInput label="MAX OPEN POSITIONS" value={cfg.maxOpenPositions} onChange={patch('maxOpenPositions')} min={1} max={20} step={1} unit="pos" help="Refuse new buys above this limit" />
+              <NumInput label="STOP LOSS"           value={cfg.stopLossPct}      onChange={patch('stopLossPct')}      min={0.5}  max={50}  step={0.5} help="Close if price drops this % from entry" />
+              <NumInput label="TAKE PROFIT"         value={cfg.takeProfitPct}    onChange={patch('takeProfitPct')}    min={0.5}  max={200} step={0.5} help="Close if price rises this % from entry" />
+              <NumInput label="MAX DAILY DRAWDOWN"  value={cfg.maxDrawdownPct}   onChange={patch('maxDrawdownPct')}   min={1}    max={100} step={1}   help="Circuit breaker daily equity drop limit" />
+              <NumInput label="MAX OPEN POSITIONS"  value={cfg.maxOpenPositions} onChange={patch('maxOpenPositions')} min={1}    max={20}  step={1}   unit="pos" help="Refuse new buys above this limit" />
             </div>
-            <div style={{ background: 'rgba(99,102,241,0.07)', border: '1px solid var(--border2)', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', lineHeight: 1.6 }}>
+            <div style={{ background: 'rgba(99,102,241,0.07)', border: '1px solid var(--border2)', borderRadius: 6, padding: '10px 14px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', lineHeight: 1.6 }}>
               SL/TP checked every 2 min. Circuit breaker resets daily at midnight UTC. Changes take effect on the next cycle.
             </div>
+
+            {/* Trailing Stop */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text)' }}>Trailing Stop</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Stop loss that follows price up; triggers when price drops X% from its high</div>
+              </div>
+              <button
+                onClick={() => patch('trailingStopEnabled')(!cfg.trailingStopEnabled)}
+                style={{
+                  position: 'relative', width: 44, height: 24, borderRadius: 12, padding: 0, flexShrink: 0,
+                  background: cfg.trailingStopEnabled ? 'var(--accent)' : 'var(--bg3)',
+                  border: `1px solid ${cfg.trailingStopEnabled ? 'var(--accent)' : 'var(--border2)'}`,
+                  transition: 'background 0.2s, border-color 0.2s', cursor: 'pointer',
+                }}
+              >
+                <span style={{
+                  position: 'absolute', top: 3, left: cfg.trailingStopEnabled ? 22 : 3,
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: cfg.trailingStopEnabled ? '#000' : 'var(--muted)',
+                  transition: 'left 0.2s', display: 'block',
+                }} />
+              </button>
+            </div>
+            {cfg.trailingStopEnabled && (
+              <div style={{ padding: '0 0 12px' }}>
+                <NumInput label="TRAILING STOP %" value={cfg.trailingStopPct} onChange={patch('trailingStopPct')} min={0.5} max={20} step={0.5} help="Sell when price drops this % from its highest point since entry" />
+              </div>
+            )}
           </>)}
+        </div>
+      </section>
+
+      {/* ── Agent Behavior ── */}
+      <section style={{ marginBottom: 36 }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 16 }}>AGENT BEHAVIOR</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
+          {loading ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>Loading...</div> : (<>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px,1fr))', gap: 20, marginBottom: 20 }}>
+              <NumInput
+                label="CONFIDENCE THRESHOLD"
+                value={cfg.confidenceThreshold}
+                onChange={patch('confidenceThreshold')}
+                min={0} max={1} step={0.05} unit=""
+                help="Skip trades below this confidence (0 = disabled)"
+              />
+            </div>
+
+            {/* Kelly Criterion toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 0', borderTop: '1px solid var(--border)' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text)' }}>Kelly Criterion Sizing</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Scale position size by Kelly formula based on win rate and payoff ratio</div>
+              </div>
+              <button
+                onClick={() => patch('kellyEnabled')(!cfg.kellyEnabled)}
+                style={{
+                  position: 'relative', width: 44, height: 24, borderRadius: 12, padding: 0, flexShrink: 0,
+                  background: cfg.kellyEnabled ? 'var(--accent)' : 'var(--bg3)',
+                  border: `1px solid ${cfg.kellyEnabled ? 'var(--accent)' : 'var(--border2)'}`,
+                  transition: 'background 0.2s, border-color 0.2s', cursor: 'pointer',
+                }}
+              >
+                <span style={{
+                  position: 'absolute', top: 3, left: cfg.kellyEnabled ? 22 : 3,
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: cfg.kellyEnabled ? '#000' : 'var(--muted)',
+                  transition: 'left 0.2s', display: 'block',
+                }} />
+              </button>
+            </div>
+
+            {/* Consensus Mode toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '12px 0', borderTop: '1px solid var(--border)' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text)' }}>Consensus Mode</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Agent will only trade when both models agree on direction</div>
+              </div>
+              <button
+                onClick={() => patch('consensusMode')(!cfg.consensusMode)}
+                style={{
+                  position: 'relative', width: 44, height: 24, borderRadius: 12, padding: 0, flexShrink: 0,
+                  background: cfg.consensusMode ? 'var(--accent)' : 'var(--bg3)',
+                  border: `1px solid ${cfg.consensusMode ? 'var(--accent)' : 'var(--border2)'}`,
+                  transition: 'background 0.2s, border-color 0.2s', cursor: 'pointer',
+                }}
+              >
+                <span style={{
+                  position: 'absolute', top: 3, left: cfg.consensusMode ? 22 : 3,
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: cfg.consensusMode ? '#000' : 'var(--muted)',
+                  transition: 'left 0.2s', display: 'block',
+                }} />
+              </button>
+            </div>
+
+            {/* Consensus model input — only shown when consensus mode is on */}
+            {cfg.consensusMode && (
+              <div style={{ padding: '12px 0', borderTop: '1px solid var(--border)' }}>
+                <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>
+                  CONSENSUS MODEL ID
+                </label>
+                <input
+                  type="text"
+                  value={cfg.consensusModel}
+                  onChange={e => patch('consensusModel')(e.target.value)}
+                  placeholder="e.g. gpt-4o or claude-sonnet-4-20250514"
+                  style={{
+                    width: '100%', padding: '6px 10px', background: 'var(--bg3)',
+                    border: '1px solid var(--border2)', borderRadius: 4,
+                    color: 'var(--text)', fontFamily: 'var(--font-mono)', fontSize: 12, outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            )}
+          </>)}
+        </div>
+      </section>
+
+      {/* ── System Prompt ── */}
+      <section style={{ marginBottom: 36 }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 16 }}>SYSTEM PROMPT</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
+          {customPrompt === null ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
+                Using default system prompt
+              </span>
+              <button
+                onClick={() => { setCustomPrompt(''); setPromptText('') }}
+                style={{
+                  padding: '7px 18px', background: 'transparent', color: 'var(--accent)',
+                  border: '1px solid rgba(var(--accent-rgb,0,212,170),0.3)', borderRadius: 4,
+                  fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer',
+                }}
+              >
+                Customize
+              </button>
+            </div>
+          ) : (
+            <>
+              <textarea
+                value={promptText}
+                onChange={e => setPromptText(e.target.value)}
+                placeholder="Enter custom system prompt for the trading agent..."
+                style={{
+                  width: '100%', height: 200, fontFamily: 'var(--font-mono)', fontSize: 11,
+                  background: 'var(--bg3)', color: 'var(--text)',
+                  border: '1px solid var(--border2)', borderRadius: 4,
+                  padding: 12, resize: 'vertical', outline: 'none', boxSizing: 'border-box',
+                }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+                <button
+                  onClick={handleSavePrompt}
+                  disabled={promptSaving || !promptText.trim()}
+                  style={{
+                    padding: '7px 18px', background: 'var(--accent)', color: '#000',
+                    border: 'none', borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: 11,
+                    fontWeight: 700, cursor: promptSaving ? 'wait' : 'pointer', opacity: promptSaving ? 0.7 : 1,
+                  }}
+                >
+                  {promptSaving ? 'SAVING...' : 'SAVE PROMPT'}
+                </button>
+                <button
+                  onClick={handleResetPrompt}
+                  disabled={promptSaving}
+                  style={{
+                    padding: '7px 14px', background: 'transparent', color: 'var(--danger)',
+                    border: '1px solid rgba(239,68,68,0.3)', borderRadius: 4,
+                    fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer',
+                  }}
+                >
+                  RESET TO DEFAULT
+                </button>
+                {promptMsg && (
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: promptMsg.ok ? 'var(--green)' : 'var(--danger)' }}>
+                    {promptMsg.ok ? '✓' : '✗'} {promptMsg.text}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </section>
 
@@ -237,6 +695,40 @@ export function Settings() {
         {saved   && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--green)' }}>✓ Saved — cycle interval takes effect after the next run</span>}
         {saveErr && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--danger)' }}>✗ {saveErr}</span>}
       </div>
+
+      {/* ── Security ── */}
+      <section style={{ marginBottom: 36 }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 16 }}>SECURITY</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text)', marginBottom: 16 }}>Change Admin Password</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {[
+              { label: 'CURRENT PASSWORD', value: pwCurrent, set: setPwCurrent },
+              { label: 'NEW PASSWORD',     value: pwNew,     set: setPwNew },
+              { label: 'CONFIRM NEW',      value: pwConfirm, set: setPwConfirm },
+            ].map(({ label, value, set }) => (
+              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ minWidth: 160, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>{label}</span>
+                <input type="password" value={value} onChange={e => set(e.target.value)} style={pwInputStyle} />
+              </div>
+            ))}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
+              <button onClick={handlePasswordChange} disabled={pwSaving || !pwCurrent || !pwNew || !pwConfirm} style={{
+                padding: '8px 20px', background: 'var(--accent)', color: '#000', border: 'none', borderRadius: 4,
+                fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.06em',
+                opacity: pwSaving ? 0.7 : 1,
+              }}>
+                {pwSaving ? 'SAVING...' : 'CHANGE PASSWORD'}
+              </button>
+              {pwMsg && (
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: pwMsg.ok ? 'var(--green)' : 'var(--danger)' }}>
+                  {pwMsg.ok ? '✓' : '✗'} {pwMsg.text}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* ── Theme ── */}
       <section style={{ marginBottom: 36 }}>
@@ -281,8 +773,8 @@ export function Settings() {
           {[
             { label: 'Dashboard',   value: 'React + Vite + Recharts' },
             { label: 'Agent',       value: 'Node.js + TypeScript' },
-            { label: 'LLM',         value: 'Anthropic Claude (configurable)' },
-            { label: 'Database',    value: 'MongoDB 4.4' },
+            { label: 'LLM',         value: 'Anthropic Claude · OpenAI GPT/O-series (configurable)' },
+            { label: 'Database',    value: 'MongoDB' },
             { label: 'Broker',      value: 'Alpaca Paper Trading' },
             { label: 'Data',        value: 'Alpaca Crypto Bars + News · alternative.me F&G' },
             { label: 'Risk',        value: 'ATR sizing · SL/TP monitor · Circuit breaker' },
