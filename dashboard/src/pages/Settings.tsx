@@ -181,6 +181,9 @@ export function Settings() {
     claudeModel: 'claude-haiku-4-5-20251001', cycleMinutes: 30,
     confidenceThreshold: 0, kellyEnabled: false, consensusMode: false, consensusModel: '',
     trailingStopEnabled: false, trailingStopPct: 2.5,
+    activeStrategy: 'llm',
+    strategyParams: {} as Record<string, Record<string, number | boolean | string>>,
+    autoFallbackToLlm: false,
   })
 
   // Prompt editor state
@@ -244,6 +247,9 @@ export function Settings() {
         consensusModel:       c.consensusModel        ?? '',
         trailingStopEnabled:  c.trailingStopEnabled   ?? false,
         trailingStopPct:      c.trailingStopPct       ?? 2.5,
+        activeStrategy:       c.activeStrategy        ?? 'llm',
+        strategyParams:       c.strategyParams        ?? {},
+        autoFallbackToLlm:    c.autoFallbackToLlm     ?? false,
       })
       setKeys(k)
       loadModels(det)
@@ -479,6 +485,43 @@ export function Settings() {
               </>
             )}
           </>)}
+        </div>
+      </section>
+
+      {/* ── Active Strategy ── */}
+      <section style={{ marginBottom: 36 }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 16 }}>ACTIVE STRATEGY</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
+          {loading ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>Loading...</div> : (
+            <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
+                <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>
+                  STRATEGY
+                </label>
+                <select
+                  value={cfg.activeStrategy}
+                  onChange={async e => {
+                    const id = e.target.value
+                    patch('activeStrategy')(id)
+                    try { await api.setActiveStrategy(id) } catch (_) {}
+                  }}
+                  style={{
+                    padding: '6px 10px', background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 4,
+                    color: 'var(--text)', fontFamily: 'var(--font-mono)', fontSize: 12, outline: 'none', cursor: 'pointer',
+                    maxWidth: 260,
+                  }}
+                >
+                  {(['llm', 'momentum', 'meanReversion', 'breakout', 'trendFollowing', 'auto'] as const).map(id => (
+                    <option key={id} value={id}>{id}</option>
+                  ))}
+                </select>
+              </div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', lineHeight: 1.6 }}>
+                Quick-select only. Configure parameters in the{' '}
+                <span style={{ color: 'var(--accent)', cursor: 'default' }}>Strategies page</span>.
+              </div>
+            </>
+          )}
         </div>
       </section>
 

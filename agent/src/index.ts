@@ -8,6 +8,9 @@ import { createServer } from 'http'
 import { connectDB } from './logger'
 import { fetchPortfolio, fetchMarketSnapshot, fetchLatestPrices } from './poller'
 import { getDecisions } from './brain'
+import './brain'  // registers llmStrategy
+import { getStrategy, mergeWithDefaults } from './strategies/registry'
+import type { StrategyContext } from './strategies/types'
 import { logDecision, markExecuted, resolveOutcomes } from './logger'
 import { executeOrder } from './executor'
 import { getConfig, initConfig } from './config'
@@ -89,7 +92,37 @@ async function runAgentCycle(): Promise<void> {
     const regime = detectRegime(market)
     console.log(`[agent] Market regime: ${regime}`)
 
-    const decisions = await getDecisions(market, portfolio, MAX_POSITION_USD, recentAssets, fearGreed, news, regime)
+    const cfg = getConfig()
+    const strategy = getStrategy(cfg.activeStrategy || 'llm')
+    const resolvedParams = mergeWithDefaults(
+      strategy.params,
+      (cfg.strategyParams?.[cfg.activeStrategy] as any) ?? {}
+    )
+
+    // Evaluate strategy for each asset in parallel
+    const stratResults = await Promise.all(
+      Object.entries(market).map(async ([asset, snapshot]) => {
+        const ctx: StrategyContext = {
+          asset, snapshot, portfolio,
+          maxPositionUsd: MAX_POSITION_USD,
+          regime,
+          fearGreedValue: fearGreed?.value ?? null,
+        }
+        const result = await strategy.evaluate(ctx, resolvedParams)
+        return { asset, result }
+      })
+    )
+
+    // Convert to the existing Decision shape
+    const decisions = stratResults
+      .filter(({ result }) => result.signal !== 'none')
+      .map(({ asset, result }) => ({
+        action:     result.action,
+        asset,
+        amount_usd: result.amount_usd,
+        confidence: result.confidence,
+        reasoning:  result.reasoning,
+      }))
 
     // Log every asset's evaluation
     for (const d of decisions) {

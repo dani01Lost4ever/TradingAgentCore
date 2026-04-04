@@ -44,6 +44,41 @@ export interface AgentConfig {
   consensusModel: string
   trailingStopEnabled: boolean
   trailingStopPct: number
+  activeStrategy: string
+  strategyParams: Record<string, Record<string, number | boolean | string>>
+  autoFallbackToLlm: boolean
+}
+
+export interface ParamDef {
+  key: string; label: string; type: 'number' | 'boolean' | 'select'
+  default: number | boolean | string
+  min?: number; max?: number; step?: number; options?: string[]
+  gridValues?: (number | boolean | string)[]; help?: string
+}
+
+export interface StrategyInfo {
+  id: string; label: string; description: string; params: ParamDef[]
+}
+
+export interface CompareStrategyResult {
+  strategyId: string; label: string
+  result: BacktestResult
+  equityCurve: { ts: string; equity: number }[]
+}
+
+export interface CompareResult {
+  strategies: CompareStrategyResult[]
+}
+
+export interface OptimizeRun {
+  params: Record<string, number | boolean | string>
+  sharpe: number; sortino: number; totalReturn: number
+  maxDrawdown: number; winRate: number; totalTrades: number
+}
+
+export interface OptimizeResult {
+  strategyId: string; bestParams: Record<string, number | boolean | string>
+  bestSharpe: number; totalRuns: number; runs: OptimizeRun[]
 }
 
 export interface HealthStatus {
@@ -218,6 +253,18 @@ export const api = {
   // Backtest
   runBacktest:     (params: object) => req<BacktestResult>('/api/backtest', json(params)),
   backtestResults: () => req<BacktestResult[]>('/api/backtest/results'),
+
+  // Strategy system
+  listStrategies:    () => req<{ strategies: StrategyInfo[] }>('/api/strategies'),
+  strategyParams:    (id: string) => req<Record<string, number|boolean|string>>(`/api/strategy/params?strategyId=${id}`),
+  setStrategyParams: (id: string, params: Record<string, number|boolean|string>) =>
+    req<{ success: boolean }>('/api/strategy/params', json({ strategyId: id, params })),
+  setActiveStrategy: (activeStrategy: string, autoFallbackToLlm?: boolean) =>
+    req<AgentConfig>('/api/config/strategy', json({ activeStrategy, autoFallbackToLlm })),
+  backtestCompare:   (body: object) => req<CompareResult>('/api/backtest/compare', json(body)),
+  runOptimize:       (body: object) => req<OptimizeResult>('/api/optimize', json(body)),
+  optimizeResults:   (strategyId?: string) =>
+    req<OptimizeResult[]>(`/api/optimize/results${strategyId ? `?strategyId=${strategyId}` : ''}`),
 
   // Benchmark
   benchmark:       () => req<BenchmarkData>('/api/equity/benchmark'),

@@ -1,7 +1,7 @@
 import express from 'express'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
-import { TradeModel, EquityModel, TokenUsageModel, AuditLogModel, PromptModel, BacktestResultModel } from './schema'
+import { TradeModel, EquityModel, TokenUsageModel, AuditLogModel, PromptModel, BacktestResultModel, OptimizeResultModel } from './schema'
 import { executeOrder } from './executor'
 import { markExecuted, exportDataset } from './logger'
 import { getLogs } from './logs'
@@ -575,7 +575,8 @@ export function createApiServer(): express.Application {
   app.post('/api/config/risk', async (req, res) => {
     const { stopLossPct, takeProfitPct, maxDrawdownPct, maxOpenPositions, claudeModel, cycleMinutes,
             confidenceThreshold, kellyEnabled, consensusMode, consensusModel,
-            trailingStopEnabled, trailingStopPct } = req.body
+            trailingStopEnabled, trailingStopPct,
+            activeStrategy, strategyParams, autoFallbackToLlm } = req.body
     const updates: any = {}
     if (typeof stopLossPct === 'number')           updates.stopLossPct           = stopLossPct
     if (typeof takeProfitPct === 'number')         updates.takeProfitPct         = takeProfitPct
@@ -589,6 +590,9 @@ export function createApiServer(): express.Application {
     if (typeof consensusModel === 'string')        updates.consensusModel        = consensusModel
     if (typeof trailingStopEnabled === 'boolean')  updates.trailingStopEnabled   = trailingStopEnabled
     if (typeof trailingStopPct === 'number')       updates.trailingStopPct       = trailingStopPct
+    if (typeof activeStrategy === 'string')        updates.activeStrategy        = activeStrategy
+    if (strategyParams !== undefined)              updates.strategyParams        = strategyParams
+    if (typeof autoFallbackToLlm === 'boolean')    updates.autoFallbackToLlm     = autoFallbackToLlm
     await logAudit('config_change', JSON.stringify(req.body), 'admin', req)
     const updated = await setConfig(updates)
     console.log('[api] Config updated:', updates)
@@ -724,6 +728,106 @@ export function createApiServer(): express.Application {
     ])
 
     res.json({ trades, total, page, limit })
+  })
+
+  // GET /api/strategies
+  app.get('/api/strategies', requireAuth, (_req, res) => {
+    const { listStrategies } = require('./strategies/registry')
+    res.json({ strategies: listStrategies() })
+  })
+
+  // GET /api/strategy/params?strategyId=momentum
+  app.get('/api/strategy/params', requireAuth, (req, res) => {
+    const { getStrategy: gs, mergeWithDefaults: mwd } = require('./strategies/registry')
+    const strategyId = String(req.query.strategyId || 'momentum')
+    const saved = getConfig().strategyParams?.[strategyId] ?? {}
+    try {
+      const strategy = gs(strategyId)
+      const merged = mwd(strategy.params, saved as any)
+      res.json(merged)
+    } catch {
+      res.status(404).json({ error: 'Unknown strategy' })
+    }
+  })
+
+  // POST /api/strategy/params
+  app.post('/api/strategy/params', requireAuth, async (req, res) => {
+    const { strategyId, params } = req.body
+    if (!strategyId || !params) return res.status(400).json({ error: 'strategyId and params required' })
+    const current = getConfig().strategyParams ?? {}
+    await setConfig({ strategyParams: { ...current, [strategyId]: params } })
+    logAudit('strategy.params', `Updated params for ${strategyId}`, (req as any).user, req).catch(() => {})
+    res.json({ success: true })
+  })
+
+  // POST /api/config/strategy
+  app.post('/api/config/strategy', requireAuth, async (req, res) => {
+    const { activeStrategy, autoFallbackToLlm } = req.body
+    const updates: any = {}
+    if (activeStrategy !== undefined) updates.activeStrategy = activeStrategy
+    if (autoFallbackToLlm !== undefined) updates.autoFallbackToLlm = autoFallbackToLlm
+    const cfg = await setConfig(updates)
+    logAudit('strategy.select', `Active strategy set to ${activeStrategy}`, (req as any).user, req).catch(() => {})
+    res.json(cfg)
+  })
+
+  // POST /api/backtest/compare
+  app.post('/api/backtest/compare', requireAuth, async (req, res) => {
+    try {
+      const { strategyIds, assets, startDate, endDate, cycleHours, startEquity, maxPositionUsd = 500, strategyParams = {} } = req.body
+      if (!strategyIds?.length) return res.status(400).json({ error: 'strategyIds required' })
+
+      const { runBacktest: rb } = await import('./backtest')
+      const { getStrategy: gs } = await import('./strategies/registry')
+
+      const results = await Promise.all(
+        (strategyIds as string[]).map(async (sid: string) => {
+          const bt = await rb({
+            assets, startDate, endDate, cycleHours,
+            strategyId: sid,
+            strategyParams: strategyParams[sid] ?? {},
+            startEquity, maxPositionUsd, model: '', mode: 'rules',
+            saveToDb: false,
+          })
+          // Build equity curve from trades
+          let eq = startEquity
+          const equityCurve = (bt.trades || []).map((t: any) => {
+            eq += t.pnl_usd
+            return { ts: t.ts, equity: Math.round(eq) }
+          })
+          return { strategyId: sid, label: (() => { try { return gs(sid).label } catch { return sid } })(), result: bt, equityCurve }
+        })
+      )
+      res.json({ strategies: results })
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  // POST /api/optimize
+  app.post('/api/optimize', requireAuth, async (req, res) => {
+    try {
+      const { strategyId, assets, startDate, endDate, cycleHours, startEquity, maxPositionUsd = 500, paramGrid } = req.body
+      if (!strategyId || !paramGrid) return res.status(400).json({ error: 'strategyId and paramGrid required' })
+
+      // Guard against combinatorial explosion
+      const combos = Object.values(paramGrid as Record<string, any[]>).reduce((a, b) => a * b.length, 1)
+      if (combos > 500) return res.status(400).json({ error: `Too many combinations (${combos}), max 500` })
+
+      const { runOptimization } = await import('./optimizer')
+      const result = await runOptimization({ strategyId, assets, startDate, endDate, cycleHours, startEquity, maxPositionUsd, paramGrid })
+      res.json(result)
+    } catch (e: any) {
+      res.status(500).json({ error: e.message })
+    }
+  })
+
+  // GET /api/optimize/results?strategyId=momentum
+  app.get('/api/optimize/results', requireAuth, async (req, res) => {
+    const filter: any = {}
+    if (req.query.strategyId) filter.strategyId = req.query.strategyId
+    const results = await OptimizeResultModel.find(filter).sort({ runAt: -1 }).limit(20).lean()
+    res.json(results)
   })
 
   return app

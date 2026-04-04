@@ -15,6 +15,9 @@ export interface AgentConfig {
   consensusModel: string       // Second model ID for consensus
   trailingStopEnabled: boolean
   trailingStopPct: number
+  activeStrategy:    string   // 'llm' | 'momentum' | 'meanReversion' | 'breakout' | 'trendFollowing' | 'auto'
+  strategyParams:    Record<string, Record<string, number | boolean | string>>
+  autoFallbackToLlm: boolean
 }
 
 const defaultAssets = (process.env.ASSETS || 'BTC/USD,ETH/USD')
@@ -38,6 +41,9 @@ const state: AgentConfig = {
   consensusModel: '',
   trailingStopEnabled: false,
   trailingStopPct: 2.5,
+  activeStrategy:    'llm',
+  strategyParams:    {},
+  autoFallbackToLlm: false,
 }
 
 export function getConfig(): Readonly<AgentConfig> {
@@ -72,6 +78,9 @@ export async function initConfig(): Promise<void> {
     if (typeof (saved as any).consensusModel === 'string')        state.consensusModel        = (saved as any).consensusModel
     if (typeof (saved as any).trailingStopEnabled === 'boolean')  state.trailingStopEnabled   = (saved as any).trailingStopEnabled
     if (typeof (saved as any).trailingStopPct === 'number')       state.trailingStopPct       = (saved as any).trailingStopPct
+    if (typeof (saved as any).activeStrategy === 'string')      state.activeStrategy    = (saved as any).activeStrategy
+    if ((saved as any).strategyParams && typeof (saved as any).strategyParams === 'object') state.strategyParams = (saved as any).strategyParams
+    if (typeof (saved as any).autoFallbackToLlm === 'boolean')  state.autoFallbackToLlm = (saved as any).autoFallbackToLlm
     console.log(`[config] Loaded from DB — model: ${state.claudeModel}, cycle: ${state.cycleMinutes}min, autoApprove: ${state.autoApprove}`)
   } else {
     // First run — persist the defaults so they're visible in the DB

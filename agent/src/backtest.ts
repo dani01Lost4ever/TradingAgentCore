@@ -13,6 +13,9 @@ export interface BacktestParams {
   mode: 'rules' | 'llm'
   startEquity: number
   maxPositionUsd: number
+  strategyId?: string
+  strategyParams?: Record<string, any>
+  saveToDb?: boolean
 }
 
 export interface BacktestResult {
@@ -27,6 +30,7 @@ export interface BacktestResult {
   totalTrades: number
   sharpe?: number
   sortino?: number
+  strategyId?: string
 }
 
 const ALPACA_DATA = 'https://data.alpaca.markets'
@@ -202,6 +206,12 @@ function rulesDecision(snap: AssetSnapshot, maxPositionUsd: number): SimpleDecis
 export async function runBacktest(params: BacktestParams): Promise<BacktestResult> {
   console.log(`[backtest] Starting run: ${params.startDate} → ${params.endDate}, ${params.assets.join(', ')}, mode=${params.mode}`)
 
+  // Resolve strategy
+  const { getStrategy, mergeWithDefaults } = await import('./strategies/registry')
+  const stratId = params.strategyId ?? (params.mode === 'llm' ? 'llm' : 'momentum')
+  const strategy = getStrategy(stratId)
+  const resolvedParams = mergeWithDefaults(strategy.params, (params.strategyParams as any) ?? {})
+
   // 1. Fetch all bars for each asset
   const allBarsMap: Record<string, any[]> = {}
   for (const asset of params.assets) {
@@ -246,74 +256,48 @@ export async function runBacktest(params: BacktestParams): Promise<BacktestResul
     const equity = cash + posValue
     if (equity > peakEquity) peakEquity = equity
 
-    // 4. Get decisions
-    if (params.mode === 'rules') {
+    // 4. Get decisions via strategy
+    try {
+      const btPortfolio: Portfolio = {
+        cash_usd:   cash,
+        equity_usd: equity,
+        positions:  Object.fromEntries(Object.entries(positions).map(([a, p]) => [a, p.qty])),
+      }
+
       for (const asset of params.assets) {
         const snap = market[asset]
         if (!snap) continue
-
-        const dec = rulesDecision(snap, params.maxPositionUsd)
-        if (dec.confidence < 0.6) continue
+        const ctx = {
+          asset, snapshot: snap, portfolio: btPortfolio,
+          maxPositionUsd: params.maxPositionUsd,
+          regime: 'Unknown', fearGreedValue: null,
+        }
+        const result = await strategy.evaluate(ctx as any, resolvedParams)
+        if (result.signal === 'none' || result.action === 'hold') continue
 
         const price = snap.price
 
-        if (dec.action === 'buy' && !positions[asset]) {
-          const spend = Math.min(dec.amount_usd, cash)
+        if (result.action === 'buy' && !positions[asset]) {
+          const spend = Math.min(result.amount_usd, cash)
           if (spend < 1) continue
           const qty = spend / price
           positions[asset] = { qty, entryPrice: price, amountUsd: spend }
           cash -= spend
-          tradeLog.push({ ts: tsDate, asset, action: 'buy', price, amount_usd: spend, confidence: dec.confidence, pnl_usd: 0 })
+          tradeLog.push({ ts: tsDate, asset, action: 'buy', price, amount_usd: spend, confidence: result.confidence, pnl_usd: 0 })
           totalTrades++
-        } else if (dec.action === 'sell' && positions[asset]) {
-          const pos     = positions[asset]
+        } else if (result.action === 'sell' && positions[asset]) {
+          const pos      = positions[asset]
           const proceeds = pos.qty * price
           const pnl_usd  = proceeds - pos.amountUsd
           if (pnl_usd > 0) wins++
           cash += proceeds
           delete positions[asset]
-          tradeLog.push({ ts: tsDate, asset, action: 'sell', price, amount_usd: proceeds, confidence: dec.confidence, pnl_usd })
+          tradeLog.push({ ts: tsDate, asset, action: 'sell', price, amount_usd: proceeds, confidence: result.confidence, pnl_usd })
           totalTrades++
         }
       }
-    } else {
-      // LLM mode
-      try {
-        const portfolio: Portfolio = {
-          cash_usd:   cash,
-          equity_usd: equity,
-          positions:  Object.fromEntries(Object.entries(positions).map(([a, p]) => [a, p.qty])),
-        }
-        const decisions = await getDecisions(market, portfolio, params.maxPositionUsd)
-
-        for (const dec of decisions) {
-          if (dec.action === 'hold') continue
-          const snap = market[dec.asset]
-          if (!snap) continue
-          const price = snap.price
-
-          if (dec.action === 'buy' && !positions[dec.asset]) {
-            const spend = Math.min(dec.amount_usd, cash)
-            if (spend < 1) continue
-            const qty = spend / price
-            positions[dec.asset] = { qty, entryPrice: price, amountUsd: spend }
-            cash -= spend
-            tradeLog.push({ ts: tsDate, asset: dec.asset, action: 'buy', price, amount_usd: spend, confidence: dec.confidence, pnl_usd: 0 })
-            totalTrades++
-          } else if (dec.action === 'sell' && positions[dec.asset]) {
-            const pos      = positions[dec.asset]
-            const proceeds = pos.qty * price
-            const pnl_usd  = proceeds - pos.amountUsd
-            if (pnl_usd > 0) wins++
-            cash += proceeds
-            delete positions[dec.asset]
-            tradeLog.push({ ts: tsDate, asset: dec.asset, action: 'sell', price, amount_usd: proceeds, confidence: dec.confidence, pnl_usd })
-            totalTrades++
-          }
-        }
-      } catch (err: any) {
-        console.warn(`[backtest] LLM call failed at ${tsDate.toISOString()}: ${err.message}`)
-      }
+    } catch (err: any) {
+      console.warn(`[backtest] Strategy call failed at ${tsDate.toISOString()}: ${err.message}`)
     }
   }
 
@@ -384,13 +368,16 @@ export async function runBacktest(params: BacktestParams): Promise<BacktestResul
     totalTrades,
     sharpe,
     sortino,
+    strategyId: stratId,
   }
 
   // Save to DB
-  try {
-    await BacktestResultModel.create(result)
-  } catch (err: any) {
-    console.warn(`[backtest] Failed to save result: ${err.message}`)
+  if (params.saveToDb !== false) {
+    try {
+      await BacktestResultModel.create(result)
+    } catch (err: any) {
+      console.warn(`[backtest] Failed to save result: ${err.message}`)
+    }
   }
 
   console.log(`[backtest] Done — return: ${totalReturn}%, maxDD: ${maxDrawdown}%, winRate: ${winRate}%, trades: ${totalTrades}`)

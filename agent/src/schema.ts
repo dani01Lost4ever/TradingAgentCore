@@ -105,6 +105,9 @@ const ConfigSchema = new Schema<ConfigRecord>({
   consensusModel:      { type: String, default: '' },
   trailingStopEnabled: { type: Boolean, default: false },
   trailingStopPct:     { type: Number, default: 2.5 },
+  activeStrategy:    { type: String, default: 'llm' },
+  strategyParams:    { type: Schema.Types.Mixed, default: {} },
+  autoFallbackToLlm: { type: Boolean, default: false },
 })
 
 export const ConfigModel = mongoose.model<ConfigRecord>('Config', ConfigSchema)
@@ -196,6 +199,32 @@ const BacktestResultSchema = new Schema<BacktestResultDoc>({
   sharpe: Number, sortino: Number,
 })
 export const BacktestResultModel = mongoose.model<BacktestResultDoc>('BacktestResult', BacktestResultSchema)
+
+export interface OptimizeRunDoc {
+  params: Record<string, any>
+  sharpe: number; totalReturn: number; maxDrawdown: number; winRate: number; totalTrades: number
+}
+export interface OptimizeResultDoc extends Document {
+  runAt: Date
+  strategyId: string
+  assets: string[]
+  dateRange: { start: string; end: string }
+  bestParams: Record<string, any>
+  bestSharpe: number
+  totalRuns: number
+  runs: OptimizeRunDoc[]
+}
+const OptimizeResultSchema = new Schema<OptimizeResultDoc>({
+  runAt:      { type: Date, default: Date.now },
+  strategyId: { type: String, required: true },
+  assets:     [String],
+  dateRange:  Schema.Types.Mixed,
+  bestParams: Schema.Types.Mixed,
+  bestSharpe: Number,
+  totalRuns:  Number,
+  runs:       [Schema.Types.Mixed],
+})
+export const OptimizeResultModel = mongoose.model<OptimizeResultDoc>('OptimizeResult', OptimizeResultSchema)
 
 // ─── PositionHigh (trailing stop high water marks) ────────────────────────────
 export interface PositionHighDoc extends Document {

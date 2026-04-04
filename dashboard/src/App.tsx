@@ -6,13 +6,14 @@ import { Charts } from './pages/Charts'
 import { Settings } from './pages/Settings'
 import { Tokens } from './pages/Tokens'
 import { Backtest } from './pages/Backtest'
+import { Strategies } from './pages/Strategies'
 import { ReasoningHistory } from './pages/ReasoningHistory'
 import { AuditLog } from './pages/AuditLog'
 import { Login } from './pages/Login'
 import { Wiki } from './pages/Wiki'
 import { auth } from './api'
 
-export type Page = 'overview' | 'charts' | 'assets' | 'tokens' | 'settings' | 'backtest' | 'reasoning' | 'auditlog' | 'wiki'
+export type Page = 'overview' | 'charts' | 'assets' | 'tokens' | 'settings' | 'strategies' | 'backtest' | 'reasoning' | 'auditlog' | 'wiki'
 
 export function App() {
   const [loggedIn, setLoggedIn] = useState(auth.isLoggedIn)
@@ -35,8 +36,9 @@ export function App() {
         {page === 'charts'    && <Charts />}
         {page === 'assets'    && <Assets />}
         {page === 'tokens'    && <Tokens />}
-        {page === 'settings'  && <Settings />}
-        {page === 'backtest'  && <Backtest />}
+        {page === 'settings'    && <Settings />}
+        {page === 'strategies'  && <Strategies />}
+        {page === 'backtest'    && <Backtest />}
         {page === 'reasoning' && <ReasoningHistory />}
         {page === 'auditlog'  && <AuditLog />}
         {page === 'wiki'      && <Wiki />}

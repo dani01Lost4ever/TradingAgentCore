@@ -353,3 +353,35 @@ export async function getDecisions(
 
   return decisions
 }
+
+import { registerLlmStrategy } from './strategies/registry'
+import type { StrategyMeta, StrategyContext, StrategyResult, ResolvedParams } from './strategies/types'
+
+export const llmStrategy: StrategyMeta = {
+  id: 'llm',
+  label: 'LLM (AI)',
+  description: 'Claude or OpenAI evaluates all indicators and decides each cycle.',
+  params: [],
+  evaluate: async (ctx: StrategyContext, _params: ResolvedParams): Promise<StrategyResult> => {
+    const decs = await getDecisions(
+      { [ctx.asset]: ctx.snapshot },
+      ctx.portfolio,
+      ctx.maxPositionUsd,
+      [], null, {}, ctx.regime
+    )
+    const dec = decs.find(d => d.asset === ctx.asset)
+    if (!dec || dec.action === 'hold') {
+      return { action: 'hold', confidence: 0.5, amount_usd: 0, reasoning: dec?.reasoning ?? 'No signal', signal: 'none', indicatorsUsed: ['LLM'] }
+    }
+    return {
+      action:         dec.action,
+      confidence:     dec.confidence,
+      amount_usd:     dec.amount_usd,
+      reasoning:      dec.reasoning,
+      signal:         dec.confidence >= 0.75 ? 'strong' : dec.confidence >= 0.6 ? 'moderate' : 'weak',
+      indicatorsUsed: ['LLM'],
+    }
+  },
+}
+// Register at module load time
+registerLlmStrategy(llmStrategy)
