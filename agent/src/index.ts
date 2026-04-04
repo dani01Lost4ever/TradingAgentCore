@@ -9,6 +9,7 @@ import { connectDB } from './logger'
 import { fetchPortfolio, fetchMarketSnapshot, fetchLatestPrices } from './poller'
 import { getDecisions } from './brain'
 import './brain'  // registers llmStrategy
+import type { Decision } from './brain'
 import { getStrategy, mergeWithDefaults } from './strategies/registry'
 import type { StrategyContext } from './strategies/types'
 import { logDecision, markExecuted, resolveOutcomes } from './logger'
@@ -93,36 +94,45 @@ async function runAgentCycle(): Promise<void> {
     console.log(`[agent] Market regime: ${regime}`)
 
     const cfg = getConfig()
-    const strategy = getStrategy(cfg.activeStrategy || 'llm')
+    const activeStrategy = cfg.activeStrategy || 'llm'
+    const strategy = getStrategy(activeStrategy)
     const resolvedParams = mergeWithDefaults(
       strategy.params,
-      (cfg.strategyParams?.[cfg.activeStrategy] as any) ?? {}
+      (cfg.strategyParams?.[activeStrategy] as any) ?? {}
     )
 
-    // Evaluate strategy for each asset in parallel
-    const stratResults = await Promise.all(
-      Object.entries(market).map(async ([asset, snapshot]) => {
-        const ctx: StrategyContext = {
-          asset, snapshot, portfolio,
-          maxPositionUsd: MAX_POSITION_USD,
-          regime,
-          fearGreedValue: fearGreed?.value ?? null,
-        }
-        const result = await strategy.evaluate(ctx, resolvedParams)
-        return { asset, result }
-      })
-    )
+    let decisions: Decision[]
 
-    // Convert to the existing Decision shape
-    const decisions = stratResults
-      .filter(({ result }) => result.signal !== 'none')
-      .map(({ asset, result }) => ({
-        action:     result.action,
-        asset,
-        amount_usd: result.amount_usd,
-        confidence: result.confidence,
-        reasoning:  result.reasoning,
-      }))
+    if (activeStrategy === 'llm') {
+      // LLM strategy: single bulk call with full market so the model can compare
+      // all assets at once and return coherent decisions. Per-asset dispatch would
+      // cause the model to hallucinate assets outside the prompt → all filtered out.
+      decisions = await getDecisions(market, portfolio, MAX_POSITION_USD, recentAssets, fearGreed, news, regime)
+    } else {
+      // Rule-based strategies: evaluate each asset independently in parallel
+      const stratResults = await Promise.all(
+        Object.entries(market).map(async ([asset, snapshot]) => {
+          const ctx: StrategyContext = {
+            asset, snapshot, portfolio,
+            maxPositionUsd: MAX_POSITION_USD,
+            regime,
+            fearGreedValue: fearGreed?.value ?? null,
+          }
+          const result = await strategy.evaluate(ctx, resolvedParams)
+          return { asset, result }
+        })
+      )
+
+      decisions = stratResults
+        .filter(({ result }) => result.signal !== 'none')
+        .map(({ asset, result }) => ({
+          action:     result.action,
+          asset,
+          amount_usd: result.amount_usd,
+          confidence: result.confidence,
+          reasoning:  result.reasoning,
+        }))
+    }
 
     // Log every asset's evaluation
     for (const d of decisions) {

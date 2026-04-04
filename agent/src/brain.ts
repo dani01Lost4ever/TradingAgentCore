@@ -280,12 +280,14 @@ export async function getDecisions(
   const userPrompt = buildUserPrompt(market, portfolio, maxPositionUsd, recentAssets, fearGreed, news, regime)
   const model      = getConfig().claudeModel || 'claude-haiku-4-5-20251001'
 
-  // Provider resolution: env override, then auto-detect from model name
+  // Provider resolution: model name always wins (gpt-*/o1/o3 → openai, claude-* → claude).
+  // LLM_PROVIDER=ollama still works as an explicit override; 'claude'/'openai' values are
+  // ignored when the model name already makes the provider unambiguous.
   const envProvider = process.env.LLM_PROVIDER
-  const provider = envProvider === 'ollama' ? 'ollama'
-                 : envProvider === 'openai'  ? 'openai'
-                 : envProvider === 'claude'  ? 'claude'
-                 : isOpenAIModel(model)      ? 'openai'
+  const provider = envProvider === 'ollama'   ? 'ollama'
+                 : isOpenAIModel(model)        ? 'openai'
+                 : model.startsWith('claude-') ? 'claude'
+                 : envProvider === 'openai'    ? 'openai'
                  : 'claude'
 
   console.log(`[brain] Calling ${provider} (${model}) for ${assetList.length} assets...`)
