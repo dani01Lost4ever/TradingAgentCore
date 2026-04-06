@@ -1,6 +1,6 @@
-# tradingAI
+# AURORATRADER
 
-`tradingAI` is an AI-assisted crypto paper trading system built around Alpaca, MongoDB, a Node.js trading agent, and a React dashboard.
+`AURORATRADER` is an AI-assisted crypto paper trading system built around Alpaca, MongoDB, a Node.js trading agent, and a React dashboard.
 
 At a high level, the project:
 - fetches crypto market data from Alpaca,
