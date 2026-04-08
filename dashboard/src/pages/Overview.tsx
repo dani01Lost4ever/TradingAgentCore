@@ -3,7 +3,7 @@ import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
   PieChart, Pie, Cell, BarChart, Bar, ComposedChart, Line,
 } from 'recharts'
-import { api } from '../api'
+import { api, getStatsPerPeriod, getActiveWalletMode } from '../api'
 import type { Stats, Trade, AgentConfig, EquityPoint, PortfolioDetail, AssetPnl, RiskStatus, HealthStatus, BenchmarkPoint, AlpacaPosition, LogEntry } from '../api'
 import { StatCard } from '../components/StatCard'
 import { PendingCard } from '../components/PendingCard'
@@ -214,6 +214,13 @@ export function Overview() {
   const [liveLogs, setLiveLogs]       = useState<LogEntry[]>([])
   const [logsOpen, setLogsOpen]       = useState(true)
 
+  // Wallet mode (for live banner)
+  const [walletMode, setWalletMode]   = useState<'paper' | 'live'>('paper')
+
+  // Period P&L
+  const [pnlPeriod, setPnlPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
+  const [periodPnl, setPeriodPnl] = useState<Array<{ period: string; total_pnl: number; trade_count: number; win_rate: number; avg_win: number | null; avg_loss: number | null }>>([])
+
   // ── data loaders ──────────────────────────────────────────────────────────
   const loadCore = useCallback(async () => {
     try {
@@ -261,6 +268,10 @@ export function Overview() {
       .finally(() => setPosLoading(false))
   }, [loadCore])
 
+  useEffect(() => {
+    getActiveWalletMode().then(w => setWalletMode(w.mode)).catch(() => {})
+  }, [])
+
   // Refresh everything every 90s as a safety net (WS covers live updates)
   useEffect(() => {
     const id = setInterval(loadCore, 90_000)
@@ -274,6 +285,11 @@ export function Overview() {
     }, 60_000)
     return () => clearInterval(id)
   }, [])
+
+  // Fetch period P&L when period changes
+  useEffect(() => {
+    getStatsPerPeriod(pnlPeriod).then(setPeriodPnl).catch(() => {})
+  }, [pnlPeriod])
 
 
   // ── WebSocket live updates ─────────────────────────────────────────────
@@ -367,6 +383,20 @@ export function Overview() {
 
   return (
     <div style={{ padding: '24px 28px', maxWidth: 1200, margin: '0 auto' }}>
+
+      {walletMode === 'live' && (
+        <div style={{
+          background: '#dc2626',
+          color: 'white',
+          textAlign: 'center' as const,
+          padding: '8px 16px',
+          fontWeight: 600,
+          fontSize: '14px',
+          letterSpacing: '0.05em',
+        }}>
+          ⚠ LIVE TRADING ACTIVE — Real funds at risk
+        </div>
+      )}
 
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
@@ -724,6 +754,72 @@ export function Overview() {
           </ResponsiveContainer>
         </div>
       )}
+
+      {/* ── Period P&L ── */}
+      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20, marginBottom: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+          <h3 style={{ margin: 0, fontSize: '16px', fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>P&amp;L Breakdown</h3>
+          {(['daily', 'weekly', 'monthly'] as const).map(p => (
+            <button
+              key={p}
+              onClick={() => setPnlPeriod(p)}
+              style={{
+                padding: '4px 12px', borderRadius: '999px',
+                border: '1px solid #374151',
+                background: pnlPeriod === p ? '#3b82f6' : 'transparent',
+                color: pnlPeriod === p ? 'white' : 'inherit',
+                cursor: 'pointer', fontSize: '13px', textTransform: 'capitalize' as const,
+              }}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={periodPnl.slice(-30)}>
+            <XAxis dataKey="period" tick={{ fontSize: 11 }} tickLine={false} />
+            <YAxis tickFormatter={(v: number) => `$${v}`} tick={{ fontSize: 11 }} tickLine={false} />
+            <Tooltip formatter={(v: number) => [`$${Number(v).toFixed(2)}`, 'P&L']} />
+            <Bar dataKey="total_pnl" radius={[3, 3, 0, 0]}>
+              {periodPnl.slice(-30).map((_entry, i) => (
+                <Cell key={i} fill={periodPnl.slice(-30)[i]?.total_pnl >= 0 ? '#22c55e' : '#ef4444'} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+
+        <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse' as const, marginTop: '8px' }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid #374151' }}>
+              <th style={{ textAlign: 'left' as const, padding: '4px 8px' }}>Period</th>
+              <th style={{ textAlign: 'right' as const, padding: '4px 8px' }}>P&amp;L</th>
+              <th style={{ textAlign: 'right' as const, padding: '4px 8px' }}>Trades</th>
+              <th style={{ textAlign: 'right' as const, padding: '4px 8px' }}>Win Rate</th>
+              <th style={{ textAlign: 'right' as const, padding: '4px 8px' }}>Avg Win</th>
+              <th style={{ textAlign: 'right' as const, padding: '4px 8px' }}>Avg Loss</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...periodPnl].reverse().slice(0, 10).map((row, i) => (
+              <tr key={i} style={{ borderBottom: '1px solid #1f2937' }}>
+                <td style={{ padding: '4px 8px' }}>{row.period}</td>
+                <td style={{ padding: '4px 8px', textAlign: 'right' as const, color: row.total_pnl >= 0 ? '#22c55e' : '#ef4444' }}>
+                  ${row.total_pnl.toFixed(2)}
+                </td>
+                <td style={{ padding: '4px 8px', textAlign: 'right' as const }}>{row.trade_count}</td>
+                <td style={{ padding: '4px 8px', textAlign: 'right' as const }}>{row.win_rate}%</td>
+                <td style={{ padding: '4px 8px', textAlign: 'right' as const, color: '#22c55e' }}>
+                  {row.avg_win != null ? `$${row.avg_win.toFixed(2)}` : '—'}
+                </td>
+                <td style={{ padding: '4px 8px', textAlign: 'right' as const, color: '#ef4444' }}>
+                  {row.avg_loss != null ? `$${row.avg_loss.toFixed(2)}` : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {/* ── Agent logs + Live logs + Failed trades ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px,1fr))', gap: 12, marginBottom: 28 }}>

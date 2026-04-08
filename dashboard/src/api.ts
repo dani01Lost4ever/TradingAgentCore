@@ -458,6 +458,17 @@ export const agentApi = {
   reasoning: api.reasoning,
 }
 
+export async function getStatsPerPeriod(period: 'daily' | 'weekly' | 'monthly'): Promise<Array<{
+  period: string
+  total_pnl: number
+  trade_count: number
+  win_rate: number
+  avg_win: number | null
+  avg_loss: number | null
+}>> {
+  return req(`/api/stats/per-period?period=${period}`)
+}
+
 // WebSocket URL with JWT token injected at call time
 export function getWsUrl(): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -471,3 +482,26 @@ export const WS_URL = (() => {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${proto}//${window.location.host}/ws`
 })()
+
+function authHeaders(): Record<string, string> {
+  const token = auth.getToken()
+  return token ? { 'Authorization': `Bearer ${token}` } : {}
+}
+
+export async function getActiveWalletMode(): Promise<{ mode: 'paper' | 'live'; exchange: string; name: string }> {
+  const res = await fetch('/api/wallets/active-mode', { headers: authHeaders() })
+  return res.json()
+}
+
+export async function setWalletMode(walletId: string, mode: 'paper' | 'live', token?: string): Promise<{ id: string; mode: string }> {
+  const res = await fetch(`/api/wallets/${walletId}/mode`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode, token }),
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Failed to set mode')
+  }
+  return res.json()
+}
