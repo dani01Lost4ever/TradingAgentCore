@@ -1,12 +1,10 @@
 import { UserModel, TradeModel, type AssetSnapshot } from './schema'
-import { fetchPortfolio, fetchMarketSnapshot, fetchLatestPrices } from './poller'
 import { fetchFearAndGreed, fetchNewsHeadlines } from './sentiment'
 import { getDecisions, type Decision } from './brain'
 import { getUserConfig, type AgentConfig } from './config'
-import { getUserKeySet } from './keys'
+import { getUserKeySet, getAdapterForUser } from './keys'
 import { getStrategy, mergeWithDefaults } from './strategies/registry'
 import { logDecision, markExecuted, markExecutionFailed, resolveOutcomes, supersedePendingManualApprovals } from './logger'
-import { executeOrder } from './executor'
 import { getRiskStatus, kellyPositionSize, monitorStopLossTakeProfit, recordEquitySnapshot } from './risk'
 import { broadcast } from './ws'
 
@@ -28,7 +26,7 @@ interface UserRuntime {
   lastError: string | null
   cycles: number
   recentAssets: string[]
-  cachedPortfolio: Awaited<ReturnType<typeof fetchPortfolio>> | null
+  cachedPortfolio: import('./exchanges/adapter').Portfolio | null
   cachedMarket: Record<string, AssetSnapshot> | null
   cachedAt: number
   cycleTimer: NodeJS.Timeout | null
@@ -266,10 +264,9 @@ export class EngineManager {
       rt.nextRiskCheckAt = new Date(Date.now() + 2 * 60_000).toISOString()
       rt.riskTimer = setTimeout(async () => {
         try {
-          const [cfg, keys] = await Promise.all([getUserConfig(rt.userId), getUserKeySet(rt.userId)])
-          const creds = { alpaca_api_key: keys.alpaca_api_key, alpaca_api_secret: keys.alpaca_api_secret, alpaca_base_url: keys.alpaca_base_url }
-          const prices = await fetchLatestPrices(cfg.assets, creds)
-          await monitorStopLossTakeProfit(prices, rt.userId, creds, cfg)
+          const [cfg, adapter] = await Promise.all([getUserConfig(rt.userId), getAdapterForUser(rt.userId)])
+          const prices = await adapter.fetchLatestPrices(cfg.assets)
+          await monitorStopLossTakeProfit(prices, rt.userId, adapter, cfg)
         } catch (e: any) {
           console.error(`[engine:${rt.username}] risk monitor error:`, e.message)
         }
@@ -283,16 +280,15 @@ export class EngineManager {
     rt: UserRuntime,
     cfg: AgentConfig,
     force = false
-  ): Promise<{ portfolio: Awaited<ReturnType<typeof fetchPortfolio>>; market: Record<string, AssetSnapshot> }> {
+  ): Promise<{ portfolio: import('./exchanges/adapter').Portfolio; market: Record<string, AssetSnapshot> }> {
     const cacheMaxAgeMs = Math.max(15_000, cfg.marketDataMinutes * 60 * 1000 - 5_000)
     const cacheFresh = !force && rt.cachedPortfolio && rt.cachedMarket && (Date.now() - rt.cachedAt) < cacheMaxAgeMs
     if (cacheFresh) return { portfolio: rt.cachedPortfolio!, market: rt.cachedMarket! }
 
-    const keys = await getUserKeySet(rt.userId)
-    const creds = { alpaca_api_key: keys.alpaca_api_key, alpaca_api_secret: keys.alpaca_api_secret, alpaca_base_url: keys.alpaca_base_url }
+    const adapter = await getAdapterForUser(rt.userId)
     const [portfolio, market] = await Promise.all([
-      fetchPortfolio(creds),
-      fetchMarketSnapshot(cfg.assets, creds),
+      adapter.fetchPortfolio(),
+      adapter.fetchMarketSnapshot(cfg.assets),
     ])
     rt.cachedPortfolio = portfolio
     rt.cachedMarket = market
@@ -305,8 +301,7 @@ export class EngineManager {
   private async runCycle(rt: UserRuntime): Promise<void> {
     if (!rt.active || rt.paused || rt.blocked) return
     const cfg = await getUserConfig(rt.userId)
-    const keys = await getUserKeySet(rt.userId)
-    const creds = { alpaca_api_key: keys.alpaca_api_key, alpaca_api_secret: keys.alpaca_api_secret, alpaca_base_url: keys.alpaca_base_url }
+    const [keys, adapter] = await Promise.all([getUserKeySet(rt.userId), getAdapterForUser(rt.userId)])
     try {
       const { portfolio, market } = await this.refreshMarketData(rt, cfg)
       const riskStatus = await getRiskStatus(cfg as any, portfolio.equity_usd, rt.userId)
@@ -317,7 +312,7 @@ export class EngineManager {
 
       const [fearGreed, news] = await Promise.all([
         fetchFearAndGreed(),
-        fetchNewsHeadlines(cfg.assets, creds),
+        fetchNewsHeadlines(cfg.assets, { alpaca_api_key: keys.alpaca_api_key, alpaca_api_secret: keys.alpaca_api_secret, alpaca_base_url: keys.alpaca_base_url }),
       ])
 
       const regime = detectRegime(market)
@@ -373,7 +368,7 @@ export class EngineManager {
         rt.recentAssets = [decision.asset, ...rt.recentAssets].slice(0, 3)
         if (cfg.autoApprove) {
           try {
-            const result = await executeOrder(decision, creds)
+            const result = await adapter.executeOrder(decision)
             await markExecuted(record._id.toString(), result.order_id)
             const executedRecord = await TradeModel.findById(record._id).lean()
             broadcast('trade:executed', executedRecord, rt.userId)

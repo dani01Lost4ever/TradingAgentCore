@@ -1,9 +1,8 @@
 import { TradeModel, EquityModel, AssetSnapshot, PositionHighModel } from './schema'
 import { AgentConfig, getConfig } from './config'
-import { executeOrder } from './executor'
 import { markExecuted } from './logger'
-import { Portfolio } from './poller'
-import type { AlpacaCredentials } from './executor'
+import type { ExchangeAdapter } from './exchanges'
+import type { Portfolio } from './exchanges/adapter'
 
 // High-correlation groups — avoid trading multiple from same group per cycle
 const CORRELATION_GROUPS: string[][] = [
@@ -116,7 +115,7 @@ export async function kellyPositionSize(
 export async function monitorStopLossTakeProfit(
   currentPrices: Record<string, AssetSnapshot>,
   userId = '__global__',
-  creds?: AlpacaCredentials,
+  adapter: ExchangeAdapter,
   configOverride?: AgentConfig,
 ): Promise<void> {
   const openTrades = await TradeModel.find({
@@ -140,13 +139,13 @@ export async function monitorStopLossTakeProfit(
 
     console.log(`[risk] ${triggered.toUpperCase()} triggered for ${trade.decision.asset} @ $${currentPrice}`)
     try {
-      const result = await executeOrder({
+      const result = await adapter.executeOrder({
         action: 'sell',
         asset: trade.decision.asset,
         amount_usd: trade.decision.amount_usd,
         confidence: 1.0,
         reasoning: `${triggered.toUpperCase()} triggered at $${currentPrice}`,
-      }, creds)
+      })
       await markExecuted(trade._id.toString(), result.order_id)
       await TradeModel.findByIdAndUpdate(trade._id, {
         close_reason: triggered,
@@ -158,13 +157,13 @@ export async function monitorStopLossTakeProfit(
     }
   }
 
-  await updateAndCheckTrailingStops(currentPrices, userId, creds, configOverride)
+  await updateAndCheckTrailingStops(currentPrices, userId, adapter, configOverride)
 }
 
 export async function updateAndCheckTrailingStops(
   currentPrices: Record<string, AssetSnapshot>,
   userId = '__global__',
-  creds?: AlpacaCredentials,
+  adapter: ExchangeAdapter,
   configOverride?: AgentConfig,
 ): Promise<void> {
   const cfg = configOverride || getConfig()
@@ -198,13 +197,13 @@ export async function updateAndCheckTrailingStops(
     if (currentPrice <= stopLevel) {
       console.log(`[risk] TRAILING STOP triggered for ${trade.decision.asset} @ $${currentPrice} (high was $${newHigh}, stop $${stopLevel.toFixed(4)})`)
       try {
-        const result = await executeOrder({
+        const result = await adapter.executeOrder({
           action: 'sell',
           asset: trade.decision.asset,
           amount_usd: trade.decision.amount_usd,
           confidence: 1.0,
           reasoning: `Trailing stop triggered at $${currentPrice} (${cfg.trailingStopPct}% below high of $${newHigh})`,
-        }, creds)
+        })
         await markExecuted(trade._id.toString(), result.order_id)
         await TradeModel.findByIdAndUpdate(trade._id, { close_reason: 'sl', closed_at: new Date() })
         await PositionHighModel.deleteOne({ tradeId })
