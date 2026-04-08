@@ -76,6 +76,10 @@ function generateTotpCode(secretBase32: string, timestampMs = Date.now()): strin
   return String(code).padStart(6, '0')
 }
 
+export function verifyTOTP(secretBase32: string, code: string): boolean {
+  return verifyTotpCode(secretBase32, code)
+}
+
 function verifyTotpCode(secretBase32: string, code: string): boolean {
   const clean = code.trim()
   if (!/^\d{6}$/.test(clean)) return false
