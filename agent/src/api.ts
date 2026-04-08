@@ -25,6 +25,31 @@ import type { KeyName } from './keys'
 import axios from 'axios'
 import path from 'path'
 import fs from 'fs'
+import rateLimit from 'express-rate-limit'
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, please try again later.' },
+})
+
+const twoFaLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many 2FA attempts, please try again later.' },
+})
+
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many registration attempts, please try again later.' },
+})
 
 const ALPACA_DATA = 'https://data.alpaca.markets'
 const MANUAL_PENDING_FILTER = {
@@ -72,7 +97,7 @@ export function createApiServer(): express.Application {
   })
 
   // ── Public routes (no auth needed) ────────────────────────────────────────
-  app.post('/api/auth/register', async (req, res) => {
+  app.post('/api/auth/register', registerLimiter, async (req, res) => {
     const originalJson = res.json.bind(res)
     res.json = (body: any) => {
       if (res.statusCode < 400 && body?.user?.username) {
@@ -86,7 +111,7 @@ export function createApiServer(): express.Application {
     return registerHandler(req, res)
   })
 
-  app.post('/api/auth/login', async (req, res) => {
+  app.post('/api/auth/login', loginLimiter, async (req, res) => {
     const originalJson = res.json.bind(res)
     res.json = (body: any) => {
       if (body?.token) {
@@ -101,7 +126,7 @@ export function createApiServer(): express.Application {
     return loginHandler(req, res)
   })
 
-  app.post('/api/auth/login/2fa', async (req, res) => {
+  app.post('/api/auth/login/2fa', twoFaLimiter, async (req, res) => {
     const originalJson = res.json.bind(res)
     res.json = (body: any) => {
       if (body?.token) {
