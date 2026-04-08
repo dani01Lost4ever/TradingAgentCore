@@ -2,7 +2,7 @@ import axios from 'axios'
 import { BacktestResultModel, BacktestTradeDoc, AssetSnapshot } from './schema'
 import { getKey } from './keys'
 import { getDecisions } from './brain'
-import type { Portfolio } from './poller'
+import type { Portfolio } from './exchanges/adapter'
 
 export interface BacktestParams {
   assets: string[]
@@ -259,9 +259,10 @@ export async function runBacktest(params: BacktestParams): Promise<BacktestResul
     // 4. Get decisions via strategy
     try {
       const btPortfolio: Portfolio = {
-        cash_usd:   cash,
-        equity_usd: equity,
-        positions:  Object.fromEntries(Object.entries(positions).map(([a, p]) => [a, p.qty])),
+        cash_usd:        cash,
+        equity_usd:      equity,
+        positions:       Object.fromEntries(Object.entries(positions).map(([a, p]) => [a, p.qty])),
+        position_details: [],
       }
 
       for (const asset of params.assets) {
