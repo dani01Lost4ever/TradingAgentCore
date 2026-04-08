@@ -12,6 +12,12 @@ export function Profile({ me }: { me: AuthUser | null }) {
   const [alpacaSecret, setAlpacaSecret] = useState('')
   const [alpacaBase, setAlpacaBase] = useState('https://paper-api.alpaca.markets')
   const [saving, setSaving] = useState(false)
+  const [newWalletExchange, setNewWalletExchange] = useState<'alpaca' | 'binance' | 'coinbase'>('alpaca')
+  const [newWalletMode, setNewWalletMode] = useState<'paper' | 'live'>('paper')
+  const [newWalletBinanceKey, setNewWalletBinanceKey] = useState('')
+  const [newWalletBinanceSecret, setNewWalletBinanceSecret] = useState('')
+  const [newWalletCoinbaseKey, setNewWalletCoinbaseKey] = useState('')
+  const [newWalletCoinbaseSecret, setNewWalletCoinbaseSecret] = useState('')
 
   const loadWallets = async () => {
     try {
@@ -30,7 +36,8 @@ export function Profile({ me }: { me: AuthUser | null }) {
   }, [])
 
   const onCreate = async () => {
-    if (!name.trim() || !alpacaKey.trim() || !alpacaSecret.trim()) return
+    if (!name.trim()) return
+    if (newWalletExchange === 'alpaca' && (!alpacaKey.trim() || !alpacaSecret.trim())) return
     setSaving(true)
     try {
       await api.createWallet({
@@ -38,11 +45,23 @@ export function Profile({ me }: { me: AuthUser | null }) {
         alpaca_api_key: alpacaKey.trim(),
         alpaca_api_secret: alpacaSecret.trim(),
         alpaca_base_url: alpacaBase.trim() || 'https://paper-api.alpaca.markets',
-      })
+        exchange: newWalletExchange,
+        mode: newWalletMode,
+        binance_api_key: newWalletBinanceKey,
+        binance_api_secret: newWalletBinanceSecret,
+        coinbase_api_key: newWalletCoinbaseKey,
+        coinbase_api_secret: newWalletCoinbaseSecret,
+      } as any)
       setName('')
       setAlpacaKey('')
       setAlpacaSecret('')
       setAlpacaBase('https://paper-api.alpaca.markets')
+      setNewWalletExchange('alpaca')
+      setNewWalletMode('paper')
+      setNewWalletBinanceKey('')
+      setNewWalletBinanceSecret('')
+      setNewWalletCoinbaseKey('')
+      setNewWalletCoinbaseSecret('')
       await loadWallets()
     } catch (e: any) {
       setError(e.message || 'Failed to create wallet')
@@ -69,6 +88,12 @@ export function Profile({ me }: { me: AuthUser | null }) {
               <div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)' }}>
                   {w.name} {w.active ? <span style={{ color: 'var(--green)' }}>[ACTIVE]</span> : null}
+                  <span style={{
+                    padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700,
+                    background: (w as any).mode === 'live' ? '#dc2626' : '#16a34a', color: 'white', marginLeft: '8px',
+                  }}>
+                    {(w as any).mode === 'live' ? 'LIVE' : 'PAPER'}
+                  </span>
                 </div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
                   Key {w.alpaca_api_key_masked} | Secret {w.alpaca_api_secret_masked} | {w.alpaca_base_url}
@@ -98,12 +123,69 @@ export function Profile({ me }: { me: AuthUser | null }) {
 
       <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 16 }}>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 12 }}>ADD WALLET</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Wallet name" style={inp} />
-          <input value={alpacaBase} onChange={(e) => setAlpacaBase(e.target.value)} placeholder="Base URL" style={inp} />
-          <input value={alpacaKey} onChange={(e) => setAlpacaKey(e.target.value)} placeholder="Alpaca API Key" style={inp} />
-          <input type="password" value={alpacaSecret} onChange={(e) => setAlpacaSecret(e.target.value)} placeholder="Alpaca API Secret" style={inp} />
+        <div style={{ marginBottom: 10 }}>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Wallet name" style={{ ...inp, width: '100%', boxSizing: 'border-box' }} />
         </div>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+          <select
+            value={newWalletExchange}
+            onChange={e => setNewWalletExchange(e.target.value as 'alpaca' | 'binance' | 'coinbase')}
+            style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid #374151', background: '#1f2937', color: 'white' }}
+          >
+            <option value="alpaca">Alpaca</option>
+            <option value="binance">Binance</option>
+            <option value="coinbase">Coinbase</option>
+          </select>
+          <select
+            value={newWalletMode}
+            onChange={e => setNewWalletMode(e.target.value as 'paper' | 'live')}
+            style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid #374151', background: '#1f2937', color: 'white' }}
+          >
+            <option value="paper">Paper</option>
+            <option value="live">Live</option>
+          </select>
+        </div>
+        {newWalletExchange === 'alpaca' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+            <input value={alpacaBase} onChange={(e) => setAlpacaBase(e.target.value)} placeholder="Base URL" style={inp} />
+            <input value={alpacaKey} onChange={(e) => setAlpacaKey(e.target.value)} placeholder="Alpaca API Key" style={inp} />
+            <input type="password" value={alpacaSecret} onChange={(e) => setAlpacaSecret(e.target.value)} placeholder="Alpaca API Secret" style={inp} />
+          </div>
+        )}
+        {newWalletExchange === 'binance' && (
+          <div style={{ marginBottom: 10 }}>
+            <input
+              placeholder="Binance API Key"
+              value={newWalletBinanceKey}
+              onChange={e => setNewWalletBinanceKey(e.target.value)}
+              style={{ width: '100%', padding: '6px', marginBottom: '6px', borderRadius: '4px', border: '1px solid #374151', background: '#1f2937', color: 'white', boxSizing: 'border-box' as const }}
+            />
+            <input
+              placeholder="Binance API Secret"
+              type="password"
+              value={newWalletBinanceSecret}
+              onChange={e => setNewWalletBinanceSecret(e.target.value)}
+              style={{ width: '100%', padding: '6px', marginBottom: '6px', borderRadius: '4px', border: '1px solid #374151', background: '#1f2937', color: 'white', boxSizing: 'border-box' as const }}
+            />
+          </div>
+        )}
+        {newWalletExchange === 'coinbase' && (
+          <div style={{ marginBottom: 10 }}>
+            <input
+              placeholder="Coinbase CDP API Key Name"
+              value={newWalletCoinbaseKey}
+              onChange={e => setNewWalletCoinbaseKey(e.target.value)}
+              style={{ width: '100%', padding: '6px', marginBottom: '6px', borderRadius: '4px', border: '1px solid #374151', background: '#1f2937', color: 'white', boxSizing: 'border-box' as const }}
+            />
+            <textarea
+              placeholder="Coinbase Private Key (PEM)"
+              value={newWalletCoinbaseSecret}
+              onChange={e => setNewWalletCoinbaseSecret(e.target.value)}
+              rows={4}
+              style={{ width: '100%', padding: '6px', marginBottom: '6px', borderRadius: '4px', border: '1px solid #374151', background: '#1f2937', color: 'white', fontFamily: 'monospace', fontSize: '12px', boxSizing: 'border-box' as const }}
+            />
+          </div>
+        )}
         <div style={{ marginTop: 10 }}>
           <button onClick={onCreate} disabled={saving} style={btnPrimary}>{saving ? 'SAVING...' : 'ADD WALLET'}</button>
         </div>
