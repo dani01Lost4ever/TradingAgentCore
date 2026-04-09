@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { api } from '../api'
 import type { AuthUser, WalletInfo } from '../api'
@@ -127,23 +127,16 @@ export function Profile({ me }: { me: AuthUser | null }) {
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Wallet name" style={{ ...inp, width: '100%', boxSizing: 'border-box' }} />
         </div>
         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-          <select
+          <Dropdown<'alpaca' | 'binance' | 'coinbase'>
             value={newWalletExchange}
-            onChange={e => setNewWalletExchange(e.target.value as 'alpaca' | 'binance' | 'coinbase')}
-            style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid #374151', background: '#1f2937', color: 'white' }}
-          >
-            <option value="alpaca">Alpaca</option>
-            <option value="binance">Binance</option>
-            <option value="coinbase">Coinbase</option>
-          </select>
-          <select
+            onChange={setNewWalletExchange}
+            options={[{ value: 'alpaca', label: 'Alpaca' }, { value: 'binance', label: 'Binance' }, { value: 'coinbase', label: 'Coinbase' }]}
+          />
+          <Dropdown<'paper' | 'live'>
             value={newWalletMode}
-            onChange={e => setNewWalletMode(e.target.value as 'paper' | 'live')}
-            style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid #374151', background: '#1f2937', color: 'white' }}
-          >
-            <option value="paper">Paper</option>
-            <option value="live">Live</option>
-          </select>
+            onChange={setNewWalletMode}
+            options={[{ value: 'paper', label: 'Paper' }, { value: 'live', label: 'Live' }]}
+          />
         </div>
         {newWalletExchange === 'alpaca' && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
@@ -228,4 +221,63 @@ const btnPrimary: CSSProperties = {
   fontFamily: 'var(--font-mono)',
   fontSize: 10,
   fontWeight: 700,
+}
+
+function Dropdown<T extends string>({ value, onChange, options }: {
+  value: T
+  onChange: (v: T) => void
+  options: { value: T; label: string }[]
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const selected = options.find(o => o.value === value)
+
+  return (
+    <div ref={ref} style={{ flex: 1, position: 'relative', userSelect: 'none' }}>
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{
+          ...inp,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          cursor: 'pointer', padding: '8px 10px',
+          borderColor: open ? 'var(--accent)' : 'var(--border2)',
+        }}
+      >
+        <span>{selected?.label}</span>
+        <span style={{ marginLeft: 8, color: 'var(--muted)', fontSize: 9 }}>{open ? '▲' : '▼'}</span>
+      </div>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 100,
+          background: 'var(--bg3)', border: '1px solid var(--accent)', borderRadius: 6, overflow: 'hidden',
+        }}>
+          {options.map(o => (
+            <div
+              key={o.value}
+              onClick={() => { onChange(o.value); setOpen(false) }}
+              style={{
+                padding: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 11,
+                color: o.value === value ? 'var(--accent)' : 'var(--text)',
+                background: o.value === value ? 'var(--bg2)' : 'transparent',
+                cursor: 'pointer',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg2)')}
+              onMouseLeave={e => (e.currentTarget.style.background = o.value === value ? 'var(--bg2)' : 'transparent')}
+            >
+              {o.label}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
