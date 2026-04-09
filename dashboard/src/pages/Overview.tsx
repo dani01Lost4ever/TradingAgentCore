@@ -216,7 +216,9 @@ export function Overview() {
   const [logsOpen, setLogsOpen]       = useState(true)
 
   // Wallet mode (for live banner)
-  const [walletMode, setWalletMode]   = useState<'paper' | 'live'>('paper')
+  const [walletMode, setWalletMode]       = useState<'paper' | 'live'>('paper')
+  const [activeWalletId, setActiveWalletId]     = useState<string | null>(null)
+  const [activeWalletName, setActiveWalletName] = useState<string>('')
 
   // Period P&L
   const [pnlPeriod, setPnlPeriod] = useState<'daily' | 'weekly' | 'monthly'>('daily')
@@ -225,14 +227,15 @@ export function Overview() {
   // ── data loaders ──────────────────────────────────────────────────────────
   const loadCore = useCallback(async () => {
     try {
+      const wid = activeWalletId ?? undefined
       const [s, t, p, cfg, eq, port, pa, rs] = await Promise.all([
-        api.stats(),
-        api.trades(1, 100),
+        api.stats(wid),
+        api.trades(1, 100, wid),
         api.pending(),
         api.getConfig(),
-        api.equityHistory(200),
+        api.equityHistory(200, wid),
         api.portfolioDetail().catch(() => null),
-        api.perAssetPnl(),
+        api.perAssetPnl(wid),
         api.riskStatus().catch(() => null),
       ])
       setStats(s)
@@ -248,7 +251,7 @@ export function Overview() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [activeWalletId])
 
   useEffect(() => {
     requestNotifPermission()
@@ -270,7 +273,11 @@ export function Overview() {
   }, [loadCore])
 
   useEffect(() => {
-    getActiveWalletMode().then(w => setWalletMode(w.mode)).catch(() => {})
+    getActiveWalletMode().then(w => {
+      setWalletMode(w.mode)
+      setActiveWalletId(w.id)
+      setActiveWalletName(w.name)
+    }).catch(() => {})
   }, [])
 
   // Refresh everything every 90s as a safety net (WS covers live updates)
@@ -289,8 +296,8 @@ export function Overview() {
 
   // Fetch period P&L when period changes
   useEffect(() => {
-    getStatsPerPeriod(pnlPeriod).then(setPeriodPnl).catch(() => {})
-  }, [pnlPeriod])
+    getStatsPerPeriod(pnlPeriod, activeWalletId ?? undefined).then(setPeriodPnl).catch(() => {})
+  }, [pnlPeriod, activeWalletId])
 
 
   // ── WebSocket live updates ─────────────────────────────────────────────
@@ -402,7 +409,7 @@ export function Overview() {
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
         <h1 style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600, letterSpacing: '0.04em', color: 'var(--accent)' }}>
-          TRADING AGENT
+          TRADING AGENT{activeWalletName ? ` — ${activeWalletName}` : ''}
         </h1>
         <span style={{
           fontFamily: 'var(--font-mono)', fontSize: 11,
