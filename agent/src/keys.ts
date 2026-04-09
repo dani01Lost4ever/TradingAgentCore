@@ -78,7 +78,7 @@ async function ensureWalletSeededFromLegacyKeys(userId: string): Promise<void> {
   }
 }
 
-async function getActiveWallet(userId: string) {
+export async function getActiveWallet(userId: string) {
   await ensureWalletSeededFromLegacyKeys(userId)
   let wallet = await WalletModel.findOne({ userId, active: true })
   if (!wallet) {

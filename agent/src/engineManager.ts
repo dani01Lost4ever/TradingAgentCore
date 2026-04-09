@@ -2,7 +2,7 @@ import { UserModel, TradeModel, type AssetSnapshot } from './schema'
 import { fetchFearAndGreed, fetchNewsHeadlines } from './sentiment'
 import { getDecisions, type Decision } from './brain'
 import { getUserConfig, type AgentConfig } from './config'
-import { getUserKeySet, getAdapterForUser } from './keys'
+import { getUserKeySet, getAdapterForUser, getActiveWallet } from './keys'
 import { getStrategy, mergeWithDefaults } from './strategies/registry'
 import { logDecision, markExecuted, markExecutionFailed, resolveOutcomes, supersedePendingManualApprovals } from './logger'
 import { getRiskStatus, kellyPositionSize, monitorStopLossTakeProfit, recordEquitySnapshot } from './risk'
@@ -302,11 +302,13 @@ export class EngineManager {
     if (!rt.active || rt.paused || rt.blocked) return
     const cfg = await getUserConfig(rt.userId)
     const [keys, adapter] = await Promise.all([getUserKeySet(rt.userId), getAdapterForUser(rt.userId)])
+    const activeWallet = await getActiveWallet(rt.userId)
+    const walletId = activeWallet?._id?.toString()
     try {
       const { portfolio, market } = await this.refreshMarketData(rt, cfg)
       const riskStatus = await getRiskStatus(cfg as any, portfolio.equity_usd, rt.userId)
       if (riskStatus.circuitBreakerActive) {
-        await recordEquitySnapshot(portfolio, rt.userId)
+        await recordEquitySnapshot(portfolio, rt.userId, walletId)
         return
       }
 
@@ -361,6 +363,7 @@ export class EngineManager {
         approval_mode: cfg.autoApprove ? 'auto' : 'manual',
         strategy_id: decisionStrategy.id,
         strategy_label: decisionStrategy.label,
+        walletId,
       })
       broadcast('trade:new', record.toObject(), rt.userId)
 
@@ -379,7 +382,7 @@ export class EngineManager {
           }
         }
       }
-      await recordEquitySnapshot(portfolio, rt.userId)
+      await recordEquitySnapshot(portfolio, rt.userId, walletId)
       rt.cycles += 1
       rt.lastCycleAt = new Date().toISOString()
       rt.lastError = null
