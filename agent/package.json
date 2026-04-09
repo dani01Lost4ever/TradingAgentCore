@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "ts-node src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "backfill:wallet-ids": "ts-node src/scripts/backfill-wallet-ids.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.82.0",
