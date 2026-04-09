@@ -75,10 +75,10 @@ export function computeAtrPositionSize(
 }
 
 // Record equity snapshot after each cycle
-export async function recordEquitySnapshot(portfolio: Portfolio, userId = '__global__'): Promise<void> {
+export async function recordEquitySnapshot(portfolio: Portfolio, userId = '__global__', walletId?: string): Promise<void> {
   const lastSnap = await EquityModel.findOne({ userId }).sort({ ts: -1 }).lean()
   const peak = Math.max(portfolio.equity_usd, lastSnap?.peak ?? portfolio.equity_usd)
-  await EquityModel.create({ userId, equity: portfolio.equity_usd, cash: portfolio.cash_usd, peak })
+  await EquityModel.create({ userId, walletId, equity: portfolio.equity_usd, cash: portfolio.cash_usd, peak })
 }
 
 export async function kellyPositionSize(
