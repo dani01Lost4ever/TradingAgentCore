@@ -46,14 +46,22 @@ function StatBox({ label, value, sub, accent }: { label: string; value: string; 
 export function Tokens() {
   const [stats, setStats]     = useState<TokenStats | null>(null)
   const [history, setHistory] = useState<TokenUsageRow[]>([])
+  const [activeWalletName, setActiveWalletName] = useState<string>('')
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
-      const [s, h] = await Promise.all([api.tokenStats(), api.tokenHistory(300)])
+      const walletsRes = await api.wallets()
+      const activeWallet = walletsRes.wallets.find(w => w.active)
+      const activeWalletId = activeWallet?.id
+      const [s, h] = await Promise.all([
+        api.tokenStats(activeWalletId),
+        api.tokenHistory(300, activeWalletId),
+      ])
       setStats(s)
       setHistory(h)
+      setActiveWalletName(activeWallet?.name || '')
       setError(null)
     } catch (e: any) {
       setError(e.message)
@@ -119,7 +127,7 @@ export function Tokens() {
           API COST MONITOR
         </h1>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>
-          Anthropic Claude · all figures are estimates based on published token pricing
+          {activeWalletName ? `Wallet: ${activeWalletName} | ` : ''}Anthropic Claude all figures are estimates based on published token pricing
         </span>
         <button
           onClick={load}
@@ -295,3 +303,4 @@ export function Tokens() {
     </div>
   )
 }
+

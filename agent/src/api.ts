@@ -889,7 +889,9 @@ export function createApiServer(): express.Application {
 
   // GET /api/tokens/stats - aggregate token usage and cost
   app.get('/api/tokens/stats', async (req, res) => {
-    const scope = isAdmin(req) ? {} : { userId: currentUserId(req) }
+    const walletId = req.query.walletId as string | undefined
+    const scope: Record<string, any> = isAdmin(req) ? {} : { userId: currentUserId(req) }
+    if (walletId) scope.walletId = walletId
     const [totals, byModel, daily] = await Promise.all([
       // Overall totals
       TokenUsageModel.aggregate([
@@ -953,7 +955,9 @@ export function createApiServer(): express.Application {
   // GET /api/tokens/history?limit=200 - raw call log
   app.get('/api/tokens/history', async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit as string) || 200, 1000)
-    const scope = isAdmin(req) ? {} : { userId: currentUserId(req) }
+    const walletId = req.query.walletId as string | undefined
+    const scope: Record<string, any> = isAdmin(req) ? {} : { userId: currentUserId(req) }
+    if (walletId) scope.walletId = walletId
     const rows = await TokenUsageModel.find(scope)
       .sort({ ts: -1 })
       .limit(limit)

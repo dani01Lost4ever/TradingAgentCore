@@ -329,8 +329,8 @@ export const api = {
   perAssetPnl:     (walletId?: string) => req<AssetPnl[]>(`/api/stats/per-asset${walletId ? `?walletId=${walletId}` : ''}`),
   riskStatus:      () => req<RiskStatus>('/api/risk/status'),
 
-  tokenStats:      () => req<TokenStats>('/api/tokens/stats'),
-  tokenHistory:    (limit = 200) => req<TokenUsageRow[]>(`/api/tokens/history?limit=${limit}`),
+  tokenStats:      (walletId?: string) => req<TokenStats>(`/api/tokens/stats${walletId ? `?walletId=${walletId}` : ''}`),
+  tokenHistory:    (limit = 200, walletId?: string) => req<TokenUsageRow[]>(`/api/tokens/history?limit=${limit}${walletId ? `&walletId=${walletId}` : ''}`),
 
   // Public endpoints (no auth)
   health:          async () => { const r = await fetch('/api/health'); return r.json() as Promise<HealthStatus> },

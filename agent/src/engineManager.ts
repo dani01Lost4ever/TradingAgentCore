@@ -53,6 +53,27 @@ function resolveDecisionStrategy(activeId: string, activeLabel: string, reasonin
   return { id: 'auto', label: delegated ? `Auto -> ${delegated}` : activeLabel }
 }
 
+function toExchangeSymbol(asset: string): string {
+  return asset.replace('/', '')
+}
+
+function getHeldNotionalUsd(
+  portfolio: import('./exchanges/adapter').Portfolio,
+  market: Record<string, AssetSnapshot>,
+  asset: string
+): number {
+  const symbol = toExchangeSymbol(asset)
+  const details = portfolio.position_details || []
+  const byAsset = details.find((p) => p.asset === asset)
+  if (byAsset) return Math.max(0, byAsset.market_value)
+  const bySymbol = details.find((p) => p.asset.replace('/', '') === symbol)
+  if (bySymbol) return Math.max(0, bySymbol.market_value)
+
+  const qty = portfolio.positions[symbol] || 0
+  const px = market[asset]?.price || 0
+  return Math.max(0, qty * px)
+}
+
 function runtimeView(rt: UserRuntime) {
   return {
     userId: rt.userId,
@@ -326,7 +347,12 @@ export class EngineManager {
       if ((cfg.activeStrategy || 'llm') === 'llm') {
         decisions = await getDecisions(
           market, portfolio, MAX_POSITION_USD, rt.recentAssets, fearGreed, news, regime,
-          { userId: rt.userId, config: cfg, keys: { anthropic_api_key: keys.anthropic_api_key, openai_api_key: keys.openai_api_key } },
+          {
+            userId: rt.userId,
+            walletId,
+            config: cfg,
+            keys: { anthropic_api_key: keys.anthropic_api_key, openai_api_key: keys.openai_api_key },
+          },
         )
       } else {
         const stratResults = await Promise.all(
@@ -342,43 +368,105 @@ export class EngineManager {
         }))
       }
 
-      const actionable = decisions.filter(d => d.action !== 'hold').sort((a, b) => b.confidence - a.confidence)
-      let decision = actionable[0] ?? decisions[0]
-      if (!decision) return
-
-      if (cfg.confidenceThreshold > 0 && decision.action !== 'hold' && decision.confidence < cfg.confidenceThreshold) {
-        decision = { ...decision, action: 'hold', amount_usd: 0 }
+      const normalized: Decision[] = []
+      for (const original of decisions) {
+        let decision = { ...original }
+        if (cfg.confidenceThreshold > 0 && decision.action !== 'hold' && decision.confidence < cfg.confidenceThreshold) {
+          decision = { ...decision, action: 'hold', amount_usd: 0 }
+        }
+        if (cfg.kellyEnabled && decision.action === 'buy') {
+          decision.amount_usd = await kellyPositionSize(decision.asset, decision.amount_usd, MAX_POSITION_USD, rt.userId)
+        }
+        normalized.push(decision)
       }
-      if (cfg.kellyEnabled && decision.action !== 'hold') {
-        decision.amount_usd = await kellyPositionSize(decision.asset, decision.amount_usd, MAX_POSITION_USD, rt.userId)
+
+      const actionable = normalized.filter(d => d.action !== 'hold')
+      const sells = actionable
+        .filter(d => d.action === 'sell')
+        .sort((a, b) => b.confidence - a.confidence)
+      const buys = actionable
+        .filter(d => d.action === 'buy')
+        .sort((a, b) => b.confidence - a.confidence)
+
+      const openSymbols = new Set(
+        Object.entries(portfolio.positions)
+          .filter(([, qty]) => qty > 0)
+          .map(([symbol]) => symbol)
+      )
+      let remainingSlots = Math.max(0, cfg.maxOpenPositions - openSymbols.size)
+
+      const selected: Decision[] = []
+
+      for (const sell of sells) {
+        const heldNotional = getHeldNotionalUsd(portfolio, market, sell.asset)
+        if (heldNotional <= 0) continue
+
+        const amount = Math.min(Math.max(sell.amount_usd, 0), heldNotional)
+        if (amount <= 0) continue
+        selected.push({ ...sell, amount_usd: amount })
+
+        if (amount >= heldNotional * 0.98) {
+          const symbol = toExchangeSymbol(sell.asset)
+          if (openSymbols.delete(symbol)) remainingSlots += 1
+        }
       }
 
-      if (!cfg.autoApprove && decision.action !== 'hold') {
+      for (const buy of buys) {
+        const symbol = toExchangeSymbol(buy.asset)
+        const alreadyHeld = openSymbols.has(symbol)
+        if (!alreadyHeld && remainingSlots <= 0) continue
+        if (buy.amount_usd <= 0) continue
+
+        selected.push({ ...buy })
+        if (!alreadyHeld) {
+          openSymbols.add(symbol)
+          remainingSlots -= 1
+        }
+      }
+
+      const fallback = normalized[0]
+      const candidateDecisions = selected.length
+        ? selected
+        : (fallback ? [fallback] : [])
+      if (!candidateDecisions.length) return
+
+      const finalDecisions: Decision[] = candidateDecisions.map((decision): Decision => {
+        if (decision.action !== 'sell') return decision
+        const heldNotional = getHeldNotionalUsd(portfolio, market, decision.asset)
+        if (heldNotional <= 0) {
+          return { ...decision, action: 'hold', amount_usd: 0, reasoning: 'No position to sell on this wallet' } as Decision
+        }
+        return { ...decision, amount_usd: Math.min(decision.amount_usd, heldNotional) } as Decision
+      })
+
+      if (!cfg.autoApprove && finalDecisions.some(d => d.action !== 'hold')) {
         await supersedePendingManualApprovals(rt.userId, 'Superseded by newer signal')
       }
 
-      const decisionStrategy = resolveDecisionStrategy(activeStrategyId, strategy.label, decision.reasoning)
-      const record = await logDecision(market, portfolio, decision, rt.userId, {
-        approved: cfg.autoApprove,
-        approval_mode: cfg.autoApprove ? 'auto' : 'manual',
-        strategy_id: decisionStrategy.id,
-        strategy_label: decisionStrategy.label,
-        walletId,
-      })
-      broadcast('trade:new', record.toObject(), rt.userId)
+      for (const decision of finalDecisions) {
+        const decisionStrategy = resolveDecisionStrategy(activeStrategyId, strategy.label, decision.reasoning)
+        const record = await logDecision(market, portfolio, decision, rt.userId, {
+          approved: cfg.autoApprove,
+          approval_mode: cfg.autoApprove ? 'auto' : 'manual',
+          strategy_id: decisionStrategy.id,
+          strategy_label: decisionStrategy.label,
+          walletId,
+        })
+        broadcast('trade:new', record.toObject(), rt.userId)
 
-      if (decision.action !== 'hold') {
-        rt.recentAssets = [decision.asset, ...rt.recentAssets].slice(0, 3)
-        if (cfg.autoApprove) {
-          try {
-            const result = await adapter.executeOrder(decision)
-            await markExecuted(record._id.toString(), result.order_id)
-            const executedRecord = await TradeModel.findById(record._id).lean()
-            broadcast('trade:executed', executedRecord, rt.userId)
-          } catch (err: any) {
-            await markExecutionFailed(record._id.toString(), err.message)
-            const failedRecord = await TradeModel.findById(record._id).lean()
-            if (failedRecord) broadcast('trade:executed', failedRecord, rt.userId)
+        if (decision.action !== 'hold') {
+          rt.recentAssets = [decision.asset, ...rt.recentAssets].slice(0, 3)
+          if (cfg.autoApprove) {
+            try {
+              const result = await adapter.executeOrder(decision)
+              await markExecuted(record._id.toString(), result.order_id)
+              const executedRecord = await TradeModel.findById(record._id).lean()
+              broadcast('trade:executed', executedRecord, rt.userId)
+            } catch (err: any) {
+              await markExecutionFailed(record._id.toString(), err.message)
+              const failedRecord = await TradeModel.findById(record._id).lean()
+              if (failedRecord) broadcast('trade:executed', failedRecord, rt.userId)
+            }
           }
         }
       }

@@ -156,6 +156,7 @@ export const EquityModel = mongoose.model<EquitySnapshotDoc>('EquitySnapshot', E
 // ─── Token usage (LLM cost tracking) ─────────────────────────────────────────
 export interface TokenUsageDoc extends Document {
   userId: string
+  walletId?: string
   ts: Date
   llm_model: string
   input_tokens: number
@@ -166,6 +167,7 @@ export interface TokenUsageDoc extends Document {
 
 const TokenUsageSchema = new Schema<TokenUsageDoc>({
   userId:        { type: String, required: true, index: true },
+  walletId:      { type: String, index: true },
   ts:            { type: Date, default: Date.now, index: true },
   llm_model:     { type: String, required: true },
   input_tokens:  { type: Number, required: true },

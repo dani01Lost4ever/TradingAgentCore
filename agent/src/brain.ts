@@ -75,10 +75,17 @@ function computeCost(model: string, inputTokens: number, outputTokens: number): 
        + (outputTokens / 1_000_000) * pricing.output
 }
 
-async function saveTokenUsage(model: string, inputTokens: number, outputTokens: number, userId = '__global__', context = 'trade_decision') {
+async function saveTokenUsage(
+  model: string,
+  inputTokens: number,
+  outputTokens: number,
+  userId = '__global__',
+  walletId?: string,
+  context = 'trade_decision'
+) {
   try {
     const cost_usd = computeCost(model, inputTokens, outputTokens)
-    await TokenUsageModel.create({ userId, llm_model: model, input_tokens: inputTokens, output_tokens: outputTokens, cost_usd, context })
+    await TokenUsageModel.create({ userId, walletId, llm_model: model, input_tokens: inputTokens, output_tokens: outputTokens, cost_usd, context })
   } catch (err) {
     console.warn('[brain] Failed to save token usage:', err)
   }
@@ -122,6 +129,7 @@ interface CostContext {
 
 export interface DecisionRuntimeContext {
   userId?: string
+  walletId?: string
   config?: AgentConfig
   keys?: {
     anthropic_api_key?: string
@@ -155,6 +163,8 @@ Rules:
 - Prefer hold when signals are mixed or ambiguous
 - Do NOT favour cheap assets â€” confidence and signal quality matter, not price
 - Diversify: avoid concentrating all activity on a single asset cycle after cycle
+- Consider capital rotation: sell weaker held assets to buy stronger unheld assets
+- For strong exit signals on held assets, you may set amount_usd to full position value
 - Account for LLM call cost shown in the prompt; avoid trades whose edge is too small
 - Reference the specific indicators that drove your decision in the reasoning
 - Use recent news as a sentiment signal but do not trade on news alone
@@ -244,7 +254,7 @@ MAX TRADE SIZE: $${maxPositionUsd}${recentNote}${costNote}
 Evaluate every asset above and return one decision per asset as a JSON array.`
 }
 
-async function getAverageRecentCost(model: string, lookback: number, userId = '__global__'): Promise<{ avgCostUsd: number; sampleSize: number }> {
+async function getAverageRecentCost(model: string, lookback: number, userId = '__global__', walletId?: string): Promise<{ avgCostUsd: number; sampleSize: number }> {
   if (lookback <= 0) {
     return {
       avgCostUsd: computeCost(model, DEFAULT_ESTIMATED_INPUT_TOKENS, DEFAULT_ESTIMATED_OUTPUT_TOKENS),
@@ -252,7 +262,10 @@ async function getAverageRecentCost(model: string, lookback: number, userId = '_
     }
   }
 
-  const rows = await TokenUsageModel.find({ userId, llm_model: model })
+  const scope: Record<string, any> = { userId, llm_model: model }
+  if (walletId) scope.walletId = walletId
+
+  const rows = await TokenUsageModel.find(scope)
     .sort({ ts: -1 })
     .limit(lookback)
     .lean()
@@ -271,13 +284,19 @@ async function getAverageRecentCost(model: string, lookback: number, userId = '_
   }
 }
 
-async function buildCostContext(primaryModel: string, consensusModel: string | null, cfg: AgentConfig, userId = '__global__'): Promise<CostContext | null> {
+async function buildCostContext(
+  primaryModel: string,
+  consensusModel: string | null,
+  cfg: AgentConfig,
+  userId = '__global__',
+  walletId?: string
+): Promise<CostContext | null> {
   if (!cfg.costAwareTrading) return null
 
   const lookback = Math.max(1, Math.floor(cfg.costLookbackCalls || 20))
-  const primary = await getAverageRecentCost(primaryModel, lookback, userId)
+  const primary = await getAverageRecentCost(primaryModel, lookback, userId, walletId)
   const consensus = consensusModel
-    ? await getAverageRecentCost(consensusModel, lookback, userId)
+    ? await getAverageRecentCost(consensusModel, lookback, userId, walletId)
     : { avgCostUsd: 0, sampleSize: 0 }
 
   const estimatedTotalCostUsd = primary.avgCostUsd + consensus.avgCostUsd
@@ -347,7 +366,7 @@ async function callClaude(model: string, userPrompt: string, ctx?: DecisionRunti
 
   const { input_tokens, output_tokens } = msg.usage
   console.log(`[brain] Claude tokens â€” in: ${input_tokens}  out: ${output_tokens}  cost: $${computeCost(model, input_tokens, output_tokens).toFixed(4)}`)
-  saveTokenUsage(model, input_tokens, output_tokens, ctx?.userId || '__global__')
+  saveTokenUsage(model, input_tokens, output_tokens, ctx?.userId || '__global__', ctx?.walletId)
 
   const block = msg.content[0]
   if (block.type !== 'text') throw new Error('Unexpected response type from Claude')
@@ -373,7 +392,7 @@ async function callOpenAI(model: string, userPrompt: string, ctx?: DecisionRunti
   const inputTokens  = response.usage?.prompt_tokens     ?? 0
   const outputTokens = response.usage?.completion_tokens ?? 0
   console.log(`[brain] OpenAI tokens â€” in: ${inputTokens}  out: ${outputTokens}  cost: $${computeCost(model, inputTokens, outputTokens).toFixed(4)}`)
-  saveTokenUsage(model, inputTokens, outputTokens, ctx?.userId || '__global__')
+  saveTokenUsage(model, inputTokens, outputTokens, ctx?.userId || '__global__', ctx?.walletId)
 
   return response.choices[0]?.message?.content ?? ''
 }
@@ -446,7 +465,13 @@ export async function getDecisions(
                  : 'claude'
   const costContext = provider === 'ollama'
     ? null
-    : await buildCostContext(model, cfg.consensusMode && cfg.consensusModel ? cfg.consensusModel : null, cfg, runtime?.userId || '__global__')
+    : await buildCostContext(
+      model,
+      cfg.consensusMode && cfg.consensusModel ? cfg.consensusModel : null,
+      cfg,
+      runtime?.userId || '__global__',
+      runtime?.walletId
+    )
   const userPrompt = buildUserPrompt(market, portfolio, maxPositionUsd, recentAssets, fearGreed, news, regime, costContext)
 
   console.log(`[brain] Calling ${provider} (${model}) for ${assetList.length} assets...`)
