@@ -73,6 +73,42 @@ Important practical limitation:
   - Dataset export from profitable historical trades.
   - Notebook and scripts for fine-tuning and local Ollama deployment.
 
+## Themes
+![Screenshot 2026-04-14 085413.png](assets/Dark.png)
+Dark
+![Screenshot 2026-04-14 085446.png](assets/Midnight.png)
+Midnight
+![Screenshot 2026-04-14 085503.png](assets/Gruvbox.png)
+Gruvbox
+![Screenshot 2026-04-14 085519.png](assets/Nord.png)
+Nord
+![Screenshot 2026-04-14 085541.png](assets/Solarized.png)
+Solarized light
+![Screenshot 2026-04-14 085634.png](assets/Light.png)
+Light
+
+## Screenshots
+![Overview.png](assets/screenshots/Overview.png)
+Overview
+![Charts.png](assets/screenshots/Charts.png)
+Charts
+![Assets.png](assets/screenshots/Assets.png)
+Assets
+![ApiCostMonitor.png](assets/screenshots/ApiCostMonitor.png)
+Api Cost Monitor
+![Settings.png](assets/screenshots/Settings.png)
+Settings
+![Strategies.png](assets/screenshots/Strategies.png)
+Strategies
+![Backtest.png](assets/screenshots/Backtest.png)
+Backtest
+![ReasoningHistory.png](assets/screenshots/ReasoningHistory.png)
+ReasoningHistory
+![Wiki.png](assets/screenshots/Wiki.png)
+Wiki
+![Profile.png](assets/screenshots/Profile.png)
+Profile
+
 ## Repository Structure
 
 ```text
