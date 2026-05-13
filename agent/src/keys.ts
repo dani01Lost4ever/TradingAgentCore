@@ -1,6 +1,7 @@
 import { ApiKeyModel, WalletModel } from './schema'
 import { createAdapter } from './exchanges'
 import type { ExchangeAdapter } from './exchanges'
+import { isPrivateGatewayUrl } from './exchanges/ibkrUrlValidator'
 
 export const KEY_NAMES = [
   'anthropic_api_key',
@@ -23,13 +24,17 @@ export interface UserWalletInfo {
   id: string
   name: string
   active: boolean
-  exchange: 'alpaca' | 'binance' | 'coinbase'
+  exchange: 'alpaca' | 'binance' | 'coinbase' | 'ibkr' | 'bitpanda'
   mode: 'paper' | 'live'
   alpaca_api_key_masked: string
   alpaca_api_secret_masked: string
   alpaca_base_url: string
   binance_api_key_masked: string
   coinbase_api_key_masked: string
+  ibkr_gateway_url: string
+  ibkr_session_token_set: boolean
+  bitpanda_api_key_masked: string
+  bitpanda_api_secret_set: boolean
 }
 
 const ENV_MAP: Record<KeyName, string> = {
@@ -222,6 +227,10 @@ export async function listUserWallets(userId: string): Promise<UserWalletInfo[]>
     alpaca_base_url: w.alpaca_base_url || '',
     binance_api_key_masked: maskSecret(w.binance_api_key || ''),
     coinbase_api_key_masked: maskSecret(w.coinbase_api_key || ''),
+    ibkr_gateway_url: w.ibkr_gateway_url || 'http://localhost:5000',
+    ibkr_session_token_set: Boolean(w.ibkr_session_token),
+    bitpanda_api_key_masked: maskSecret(w.bitpanda_api_key || ''),
+    bitpanda_api_secret_set: Boolean(w.bitpanda_api_secret),
   }))
 }
 
@@ -229,7 +238,7 @@ export async function createUserWallet(
   userId: string,
   payload: {
     name: string
-    exchange?: 'alpaca' | 'binance' | 'coinbase'
+    exchange?: 'alpaca' | 'binance' | 'coinbase' | 'ibkr' | 'bitpanda'
     mode?: 'paper' | 'live'
     alpaca_api_key?: string
     alpaca_api_secret?: string
@@ -238,11 +247,24 @@ export async function createUserWallet(
     binance_api_secret?: string
     coinbase_api_key?: string
     coinbase_api_secret?: string
+    ibkr_gateway_url?: string
+    ibkr_session_token?: string
+    bitpanda_api_key?: string
+    bitpanda_api_secret?: string
   }
 ): Promise<UserWalletInfo> {
   const name = payload.name.trim()
   const existing = await WalletModel.findOne({ userId, name }).lean()
   if (existing) throw new Error('Wallet name already exists')
+
+  // SSRF guard: validate ibkr_gateway_url before persisting (Fix #2)
+  const rawGatewayUrl = (payload.ibkr_gateway_url || 'http://localhost:5000').trim()
+  if (!isPrivateGatewayUrl(rawGatewayUrl)) {
+    throw new Error(
+      `IBKR gateway URL must point to a local or private-network address (localhost, 127.x, 10.x, 172.16-31.x, 192.168.x, or *.local). Got: ${rawGatewayUrl}`,
+    )
+  }
+
   const hasAny = await WalletModel.exists({ userId })
   const wallet = await WalletModel.create({
     userId,
@@ -257,6 +279,10 @@ export async function createUserWallet(
     binance_api_secret: (payload.binance_api_secret || '').trim(),
     coinbase_api_key: (payload.coinbase_api_key || '').trim(),
     coinbase_api_secret: (payload.coinbase_api_secret || '').trim(),
+    ibkr_gateway_url: rawGatewayUrl,
+    ibkr_session_token: (payload.ibkr_session_token || '').trim(),
+    bitpanda_api_key: (payload.bitpanda_api_key || '').trim(),
+    bitpanda_api_secret: (payload.bitpanda_api_secret || '').trim(),
   })
   return {
     id: wallet._id.toString(),
@@ -269,6 +295,10 @@ export async function createUserWallet(
     alpaca_base_url: wallet.alpaca_base_url,
     binance_api_key_masked: maskSecret((wallet as any).binance_api_key || ''),
     coinbase_api_key_masked: maskSecret((wallet as any).coinbase_api_key || ''),
+    ibkr_gateway_url: (wallet as any).ibkr_gateway_url || 'http://localhost:5000',
+    ibkr_session_token_set: Boolean((wallet as any).ibkr_session_token),
+    bitpanda_api_key_masked: maskSecret((wallet as any).bitpanda_api_key || ''),
+    bitpanda_api_secret_set: Boolean((wallet as any).bitpanda_api_secret),
   }
 }
 
@@ -293,4 +323,74 @@ export async function deleteUserWallet(userId: string, walletId: string): Promis
     }
   }
   return true
+}
+
+export interface WalletCredentialPayload {
+  alpaca_api_key?: string
+  alpaca_api_secret?: string
+  alpaca_base_url?: string
+  binance_api_key?: string
+  binance_api_secret?: string
+  coinbase_api_key?: string
+  coinbase_api_secret?: string
+  ibkr_gateway_url?: string
+  ibkr_session_token?: string
+  bitpanda_api_key?: string
+  bitpanda_api_secret?: string
+}
+
+/**
+ * Update only credential fields on an existing wallet that belongs to `userId`.
+ * Returns the updated UserWalletInfo on success, or null if the wallet is not found / not owned.
+ * Does NOT touch structural fields (name, exchange, mode, active, tradingMode, etc.).
+ */
+export async function updateWalletCredentials(
+  userId: string,
+  walletId: string,
+  payload: WalletCredentialPayload,
+): Promise<UserWalletInfo | null> {
+  const wallet = await WalletModel.findOne({ _id: walletId, userId })
+  if (!wallet) return null
+
+  // Apply only the fields that were explicitly provided (non-undefined).
+  if (payload.alpaca_api_key !== undefined)    (wallet as any).alpaca_api_key    = payload.alpaca_api_key.trim()
+  if (payload.alpaca_api_secret !== undefined) (wallet as any).alpaca_api_secret = payload.alpaca_api_secret.trim()
+  if (payload.alpaca_base_url !== undefined)   (wallet as any).alpaca_base_url   = payload.alpaca_base_url.trim()
+  if (payload.binance_api_key !== undefined)   (wallet as any).binance_api_key   = payload.binance_api_key.trim()
+  if (payload.binance_api_secret !== undefined)(wallet as any).binance_api_secret = payload.binance_api_secret.trim()
+  if (payload.coinbase_api_key !== undefined)  (wallet as any).coinbase_api_key  = payload.coinbase_api_key.trim()
+  if (payload.coinbase_api_secret !== undefined)(wallet as any).coinbase_api_secret = payload.coinbase_api_secret.trim()
+  if (payload.ibkr_session_token !== undefined)(wallet as any).ibkr_session_token = payload.ibkr_session_token.trim()
+  if (payload.bitpanda_api_key !== undefined)  (wallet as any).bitpanda_api_key  = payload.bitpanda_api_key.trim()
+  if (payload.bitpanda_api_secret !== undefined)(wallet as any).bitpanda_api_secret = payload.bitpanda_api_secret.trim()
+
+  // ibkr_gateway_url requires the SSRF guard before persisting.
+  if (payload.ibkr_gateway_url !== undefined) {
+    const rawGatewayUrl = payload.ibkr_gateway_url.trim()
+    if (!isPrivateGatewayUrl(rawGatewayUrl)) {
+      throw new Error(
+        `IBKR gateway URL must point to a local or private-network address. Got: ${rawGatewayUrl}`,
+      )
+    }
+    ;(wallet as any).ibkr_gateway_url = rawGatewayUrl
+  }
+
+  await wallet.save()
+
+  return {
+    id: wallet._id.toString(),
+    name: wallet.name,
+    active: wallet.active,
+    exchange: (wallet as any).exchange ?? 'alpaca',
+    mode: (wallet as any).mode ?? 'paper',
+    alpaca_api_key_masked: maskSecret(wallet.alpaca_api_key),
+    alpaca_api_secret_masked: maskSecret(wallet.alpaca_api_secret),
+    alpaca_base_url: wallet.alpaca_base_url,
+    binance_api_key_masked: maskSecret((wallet as any).binance_api_key || ''),
+    coinbase_api_key_masked: maskSecret((wallet as any).coinbase_api_key || ''),
+    ibkr_gateway_url: (wallet as any).ibkr_gateway_url || 'http://localhost:5000',
+    ibkr_session_token_set: Boolean((wallet as any).ibkr_session_token),
+    bitpanda_api_key_masked: maskSecret((wallet as any).bitpanda_api_key || ''),
+    bitpanda_api_secret_set: Boolean((wallet as any).bitpanda_api_secret),
+  }
 }

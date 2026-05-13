@@ -223,12 +223,12 @@ ApiKeySchema.index({ userId: 1, key: 1 }, { unique: true })
 
 export const ApiKeyModel = mongoose.model<ApiKeyDoc>('ApiKey', ApiKeySchema)
 
-// Wallets (per-user Alpaca account profiles)
+// Wallets (per-user exchange account profiles)
 export interface WalletDoc extends Document {
   userId: string
   name: string
   active: boolean
-  exchange: 'alpaca' | 'binance' | 'coinbase'
+  exchange: 'alpaca' | 'binance' | 'coinbase' | 'ibkr' | 'bitpanda'
   mode: 'paper' | 'live'
   alpaca_api_key: string
   alpaca_api_secret: string
@@ -237,15 +237,45 @@ export interface WalletDoc extends Document {
   binance_api_secret: string
   coinbase_api_key: string
   coinbase_api_secret: string
+  // IBKR credentials
+  ibkr_gateway_url: string
+  ibkr_session_token: string
+  // Bitpanda credentials
+  bitpanda_api_key: string
+  bitpanda_api_secret: string
   createdAt: Date
   updatedAt: Date
+
+  // Trading mode + cadence (per-wallet override of global config)
+  tradingMode: 'scalp' | 'swing' | 'long_term'
+  cycleMinutes: number        // 0 means "use global default"
+  assets: string[]            // empty array means "use global default"
+  maxTradesPerDay: number     // 0 means "unlimited"
+  minHoldingMinutes: number   // 0 means "no minimum hold"
+
+  // Pause state (persisted; survives restart) — fixes the "pause resets" bug
+  paused: boolean
+  pausedAt: Date | null
+  pausedReason: string | null
+
+  // Cost model — fees + Italian capital-gains tax
+  feeModel: {
+    kind: 'percent' | 'flat'
+    value: number             // percent (e.g. 0.6 = 0.6%) or flat USD per trade
+    minFee: number            // optional floor in USD
+  }
+  taxRatePct: number          // default 26 for Italy
+  minNetProfitPct: number     // reject trades with expected net profit below this
+
+  // Live-trading hard gate — default false, requires explicit user opt-in
+  liveTrading: boolean
 }
 
 const WalletSchema = new Schema<WalletDoc>({
   userId: { type: String, required: true, index: true },
   name: { type: String, required: true },
   active: { type: Boolean, default: false, index: true },
-  exchange: { type: String, enum: ['alpaca', 'binance', 'coinbase'], default: 'alpaca' },
+  exchange: { type: String, enum: ['alpaca', 'binance', 'coinbase', 'ibkr', 'bitpanda'], default: 'alpaca' },
   mode: { type: String, enum: ['paper', 'live'], default: 'paper' },
   alpaca_api_key: { type: String, default: '' },
   alpaca_api_secret: { type: String, default: '' },
@@ -254,12 +284,62 @@ const WalletSchema = new Schema<WalletDoc>({
   binance_api_secret: { type: String, default: '' },
   coinbase_api_key: { type: String, default: '' },
   coinbase_api_secret: { type: String, default: '' },
+  ibkr_gateway_url: { type: String, default: 'http://localhost:5000' },
+  ibkr_session_token: { type: String, default: '' },
+  bitpanda_api_key: { type: String, default: '' },
+  bitpanda_api_secret: { type: String, default: '' },
+
+  // Trading mode + cadence
+  tradingMode: { type: String, enum: ['scalp', 'swing', 'long_term'], default: 'swing' },
+  cycleMinutes: { type: Number, default: 0 },
+  assets: { type: [String], default: [] },
+  maxTradesPerDay: { type: Number, default: 0 },
+  minHoldingMinutes: { type: Number, default: 0 },
+
+  // Pause state
+  paused: { type: Boolean, default: false, index: true },
+  pausedAt: { type: Date, default: null },
+  pausedReason: { type: String, default: null },
+
+  // Cost model
+  feeModel: {
+    kind: { type: String, enum: ['percent', 'flat'], default: 'percent' },
+    value: { type: Number, default: 0 },
+    minFee: { type: Number, default: 0 },
+  },
+  taxRatePct: { type: Number, default: 26 },
+  minNetProfitPct: { type: Number, default: 0.5 },
+
+  // Live-trading hard gate
+  liveTrading: { type: Boolean, default: false, index: true },
 }, { timestamps: true })
 
 WalletSchema.index({ userId: 1, name: 1 }, { unique: true })
 WalletSchema.index({ userId: 1, active: 1 })
 
 export const WalletModel = mongoose.model<WalletDoc>('Wallet', WalletSchema)
+
+// ─── DiscoveryRun (candidate-asset suggestions from discovery worker) ─────────
+export interface DiscoveryRunDoc extends Document {
+  userId: string
+  walletId: string
+  ts: Date
+  tradingMode: 'scalp' | 'swing' | 'long_term'
+  candidates: Array<{ symbol: string; reason: string; score: number }>
+  source: string   // e.g. 'sp500', 'eurostoxx50', 'crypto_top20'
+}
+
+const DiscoveryRunSchema = new Schema<DiscoveryRunDoc>({
+  userId:      { type: String, required: true, index: true },
+  walletId:    { type: String, required: true, index: true },
+  ts:          { type: Date, default: Date.now, index: true },
+  tradingMode: { type: String, enum: ['scalp', 'swing', 'long_term'], required: true },
+  candidates:  { type: Schema.Types.Mixed, default: [] },
+  source:      { type: String, required: true },
+})
+DiscoveryRunSchema.index({ userId: 1, walletId: 1, ts: -1 })
+
+export const DiscoveryRunModel = mongoose.model<DiscoveryRunDoc>('DiscoveryRun', DiscoveryRunSchema)
 
 // BacktestResult
 export interface BacktestTradeDoc {

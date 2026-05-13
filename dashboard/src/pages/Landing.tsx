@@ -34,7 +34,6 @@ export function Landing({ onEnter }: LandingProps) {
           background: 'color-mix(in srgb, var(--bg2) 88%, transparent)',
           border: '1px solid var(--border)',
           backdropFilter: 'blur(6px)',
-          borderRadius: 12,
           padding: '12px 14px',
           display: 'flex',
           justifyContent: 'space-between',
@@ -129,7 +128,7 @@ export function Landing({ onEnter }: LandingProps) {
         </section>
 
         <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
-          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: 14 }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 10 }}>SYSTEM SNAPSHOT</div>
             <div style={{ display: 'grid', gap: 8 }}>
               <StatRow label="Status" value={health?.status?.toUpperCase() ?? 'CHECKING'} tone={health?.status === 'ok' ? 'ok' : 'neutral'} />
@@ -140,7 +139,7 @@ export function Landing({ onEnter }: LandingProps) {
             </div>
           </div>
 
-          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: 14 }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 10 }}>WHAT YOU CAN DO HERE</div>
             <div style={{ display: 'grid', gap: 8 }}>
               <FeatureRow title="Monitor" text="Portfolio, positions, trade outcomes, and live market state." />
@@ -150,7 +149,7 @@ export function Landing({ onEnter }: LandingProps) {
             </div>
           </div>
 
-          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: 14 }}>
+          <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: 14 }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 10 }}>THEME</div>
             <ThemePicker
               compact
@@ -249,7 +248,7 @@ function Badge({ text }: { text: string }) {
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '8px 10px' }}>
+    <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', padding: '8px 10px' }}>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text)', fontWeight: 700 }}>{value}</div>
     </div>
@@ -268,7 +267,7 @@ function StatRow({ label, value, tone }: { label: string; value: string; tone: '
 
 function FeatureRow({ title, text }: { title: string; text: string }) {
   return (
-    <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 8, padding: '8px 10px' }}>
+    <div style={{ background: 'var(--bg3)', border: '1px solid var(--border2)', padding: '8px 10px' }}>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text)', marginBottom: 4 }}>{title}</div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', lineHeight: 1.5 }}>{text}</div>
     </div>
@@ -278,7 +277,7 @@ function FeatureRow({ title, text }: { title: string; text: string }) {
 function TerminalCell({ label, value, tone }: { label: string; value: string; tone: 'ok' | 'warn' }) {
   const color = tone === 'ok' ? 'var(--green)' : 'var(--warn)'
   return (
-    <div style={{ border: '1px solid var(--border2)', borderRadius: 8, padding: '8px 7px', background: 'color-mix(in srgb, var(--bg3) 88%, transparent)' }}>
+    <div style={{ border: '1px solid var(--border2)', padding: '8px 7px', background: 'color-mix(in srgb, var(--bg3) 88%, transparent)' }}>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--muted)', marginBottom: 5 }}>{label}</div>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color, fontWeight: 700 }}>{value}</div>
     </div>

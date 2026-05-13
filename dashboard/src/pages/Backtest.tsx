@@ -4,8 +4,8 @@ import type { BacktestResult, BacktestTrade, StrategyInfo, CompareStrategyResult
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 
 const card: React.CSSProperties = {
-  background: 'var(--card)', border: '1px solid var(--border)',
-  borderRadius: 10, padding: '20px 24px',
+  background: 'var(--bg2)', border: '1px solid var(--border)',
+  padding: '20px 24px',
 }
 
 const label: React.CSSProperties = {
@@ -15,18 +15,19 @@ const label: React.CSSProperties = {
 
 const input: React.CSSProperties = {
   width: '100%', padding: '8px 12px', boxSizing: 'border-box',
-  background: 'var(--input-bg)', border: '1px solid var(--border)',
-  borderRadius: 6, color: 'var(--text)', fontSize: 13,
-  fontFamily: 'var(--font-mono)',
+  background: 'var(--bg3)', border: '1px solid var(--border2)',
+  borderRadius: 0, color: 'var(--text)', fontSize: 13,
+  fontFamily: 'var(--font-mono)', outline: 'none',
+  fontVariantNumeric: 'tabular-nums',
 }
 
 const btn = (primary = false): React.CSSProperties => ({
-  padding: '9px 20px', borderRadius: 6, fontSize: 12,
+  padding: '9px 20px', borderRadius: 0, fontSize: 12,
   fontFamily: 'var(--font-mono)', letterSpacing: '0.06em',
-  border: '1px solid var(--border)', cursor: 'pointer',
-  background: primary ? 'var(--accent)' : 'var(--card)',
+  border: primary ? '1px solid var(--accent)' : '1px solid var(--border2)', cursor: 'pointer',
+  background: primary ? 'var(--accent)' : 'transparent',
   color: primary ? '#000' : 'var(--text)',
-  fontWeight: primary ? 600 : 400,
+  fontWeight: primary ? 700 : 400,
 })
 
 function StatCard({ label: lbl, value, sub }: { label: string; value: string; sub?: string }) {
@@ -122,9 +123,9 @@ function CompareTab() {
             const checked = selected.includes(s.id)
             return (
               <button key={s.id} onClick={() => toggleStrategy(s.id)} style={{
-                padding: '6px 14px', borderRadius: 6, fontSize: 11,
+                padding: '6px 14px', fontSize: 11,
                 fontFamily: 'var(--font-mono)', letterSpacing: '0.06em',
-                background: checked ? `${COMPARE_COLORS[i % COMPARE_COLORS.length]}22` : 'var(--card)',
+                background: checked ? `${COMPARE_COLORS[i % COMPARE_COLORS.length]}22` : 'var(--bg2)',
                 color: checked ? COMPARE_COLORS[i % COMPARE_COLORS.length] : 'var(--muted)',
                 border: `1px solid ${checked ? COMPARE_COLORS[i % COMPARE_COLORS.length] : 'var(--border)'}`,
                 cursor: 'pointer', fontWeight: checked ? 600 : 400,
@@ -168,7 +169,7 @@ function CompareTab() {
                 <YAxis tick={{ fill: 'var(--muted)', fontSize: 10 }} tickLine={false} width={80}
                   tickFormatter={(v: number) => `$${v.toLocaleString()}`} />
                 <Tooltip
-                  contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', fontSize: 11 }}
+                  contentStyle={{ background: 'var(--bg2)', border: '1px solid var(--border)', fontSize: 11 }}
                   formatter={(v: number, name: string) => [`$${v.toLocaleString()}`, name]}
                 />
                 {results.map((r, i) => (
@@ -371,7 +372,7 @@ function OptimizeTab() {
                         const checked = selected.includes(v)
                         return (
                           <button key={i} onClick={() => toggleGridValue(def.key, v)} style={{
-                            padding: '4px 12px', borderRadius: 4, fontSize: 11, fontFamily: 'var(--font-mono)',
+                            padding: '4px 12px', fontSize: 11, fontFamily: 'var(--font-mono)',
                             background: checked ? 'rgba(var(--accent-rgb, 0,212,170), 0.15)' : 'var(--bg3)',
                             color: checked ? 'var(--accent)' : 'var(--muted)',
                             border: `1px solid ${checked ? 'rgba(var(--accent-rgb, 0,212,170), 0.4)' : 'var(--border2)'}`,
@@ -419,7 +420,7 @@ function OptimizeTab() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {Object.entries(result.bestParams).map(([k, v]) => (
                 <span key={k} style={{
-                  padding: '3px 10px', borderRadius: 4, fontSize: 11, fontFamily: 'var(--font-mono)',
+                  padding: '3px 10px', fontSize: 11, fontFamily: 'var(--font-mono)',
                   background: 'rgba(var(--accent-rgb, 0,212,170), 0.1)', color: 'var(--accent)',
                   border: '1px solid rgba(var(--accent-rgb, 0,212,170), 0.25)',
                 }}>
@@ -459,7 +460,7 @@ function OptimizeTab() {
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                             {Object.entries(run.params).map(([k, v]) => (
                               <span key={k} style={{
-                                padding: '1px 6px', borderRadius: 3, fontSize: 10, fontFamily: 'var(--font-mono)',
+                                padding: '1px 6px', fontSize: 10, fontFamily: 'var(--font-mono)',
                                 background: 'var(--bg3)', color: 'var(--muted)', border: '1px solid var(--border2)',
                               }}>
                                 {k}={String(v)}
@@ -634,7 +635,7 @@ function RunTab() {
                     <YAxis tick={{ fill: 'var(--muted)', fontSize: 10 }} tickLine={false} width={70}
                       tickFormatter={v => `$${v.toLocaleString()}`} />
                     <Tooltip
-                      contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', fontSize: 11 }}
+                      contentStyle={{ background: 'var(--bg2)', border: '1px solid var(--border)', fontSize: 11 }}
                       formatter={(v: number) => [`$${v.toLocaleString()}`, 'Equity']}
                     />
                     <Line dataKey="equity" stroke={retColor} dot={false} strokeWidth={2} />
@@ -760,10 +761,10 @@ export function Backtest() {
             style={{
               padding: '8px 20px', borderRadius: '6px 6px 0 0', fontSize: 12,
               fontFamily: 'var(--font-mono)', letterSpacing: '0.06em',
-              background: activeTab === t.id ? 'var(--card)' : 'transparent',
+              background: activeTab === t.id ? 'var(--bg2)' : 'transparent',
               color: activeTab === t.id ? 'var(--accent)' : 'var(--muted)',
               border: activeTab === t.id ? '1px solid var(--border)' : '1px solid transparent',
-              borderBottom: activeTab === t.id ? '1px solid var(--card)' : '1px solid transparent',
+              borderBottom: activeTab === t.id ? '1px solid var(--bg2)' : '1px solid transparent',
               cursor: 'pointer', marginBottom: -1,
               fontWeight: activeTab === t.id ? 600 : 400,
             }}

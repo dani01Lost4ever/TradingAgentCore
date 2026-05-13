@@ -23,8 +23,8 @@ const STRATEGY_EXPLANATIONS: Record<string, string> = {
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const card: React.CSSProperties = {
-  background: 'var(--card)', border: '1px solid var(--border)',
-  borderRadius: 10, padding: '20px 24px',
+  background: 'var(--bg2)', border: '1px solid var(--border)',
+  padding: '20px 24px',
 }
 
 const monoLabel: React.CSSProperties = {
@@ -180,10 +180,10 @@ function StrategyCard({
             </span>
             {isActive && (
               <span style={{
-                padding: '2px 8px', borderRadius: 4, fontSize: 9, fontFamily: 'var(--font-mono)',
+                padding: '2px 8px', borderRadius: 0, fontSize: 9, fontFamily: 'var(--font-mono)',
                 fontWeight: 700, letterSpacing: '0.08em',
-                background: 'rgba(var(--accent-rgb, 0,212,170), 0.15)',
-                color: 'var(--accent)', border: '1px solid rgba(var(--accent-rgb, 0,212,170), 0.3)',
+                background: 'var(--accent-dim)',
+                color: 'var(--accent)', border: '1px solid var(--border-accent)',
               }}>
                 ACTIVE
               </span>
@@ -197,11 +197,11 @@ function StrategyCard({
           onClick={handleSelect}
           disabled={isActive || selecting}
           style={{
-            padding: '7px 16px', borderRadius: 6, fontSize: 11,
+            padding: '7px 16px', borderRadius: 0, fontSize: 11,
             fontFamily: 'var(--font-mono)', letterSpacing: '0.06em', flexShrink: 0,
-            background: isActive ? 'rgba(var(--accent-rgb, 0,212,170), 0.15)' : 'var(--accent)',
+            background: isActive ? 'var(--accent-dim)' : 'var(--accent)',
             color: isActive ? 'var(--accent)' : '#000',
-            border: isActive ? '1px solid rgba(var(--accent-rgb, 0,212,170), 0.3)' : 'none',
+            border: isActive ? '1px solid var(--border-accent)' : '1px solid var(--accent)',
             cursor: isActive ? 'default' : 'pointer',
             fontWeight: 600, opacity: selecting ? 0.7 : 1,
           }}
@@ -215,7 +215,7 @@ function StrategyCard({
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
           {badges.map(b => (
             <span key={b.label} style={{
-              padding: '2px 8px', borderRadius: 4, fontSize: 10,
+              padding: '2px 8px', fontSize: 10,
               fontFamily: 'var(--font-mono)', fontWeight: 600,
               background: `${b.color}22`, color: b.color,
               border: `1px solid ${b.color}44`,
@@ -259,7 +259,7 @@ function StrategyCard({
                   disabled={saving}
                   style={{
                     padding: '7px 18px', background: 'var(--accent)', color: '#000', border: 'none',
-                    borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
+                    fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
                     cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1,
                   }}
                 >
@@ -269,7 +269,7 @@ function StrategyCard({
                   onClick={handleReset}
                   style={{
                     padding: '7px 14px', background: 'transparent', color: 'var(--muted)',
-                    border: '1px solid var(--border2)', borderRadius: 4,
+                    border: '1px solid var(--border2)',
                     fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer',
                   }}
                 >
@@ -423,7 +423,7 @@ export function Strategies() {
 
             {/* Auto fallback toggle */}
             <div style={{
-              background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8, padding: '14px 18px',
+              background: 'var(--bg2)', border: '1px solid var(--border)', padding: '14px 18px',
               display: 'flex', flexDirection: 'column', gap: 10, minWidth: 220,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

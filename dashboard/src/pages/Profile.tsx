@@ -1,228 +1,240 @@
 import { useEffect, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
 import { api } from '../api'
 import type { AuthUser, WalletInfo } from '../api'
 
-export function Profile({ me }: { me: AuthUser | null }) {
-  const [wallets, setWallets] = useState<WalletInfo[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [name, setName] = useState('')
-  const [alpacaKey, setAlpacaKey] = useState('')
-  const [alpacaSecret, setAlpacaSecret] = useState('')
-  const [alpacaBase, setAlpacaBase] = useState('https://paper-api.alpaca.markets')
+// ── Shared input style ────────────────────────────────────────────────────────
+const inp = {
+  padding: '7px 10px',
+  background: 'var(--bg3)',
+  border: '1px solid var(--border2)',
+  borderRadius: 0,
+  color: 'var(--text)',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 11,
+  outline: 'none',
+  width: '100%',
+  boxSizing: 'border-box' as const,
+  fontVariantNumeric: 'tabular-nums',
+}
+
+const btnStyle = {
+  padding: '6px 12px',
+  borderRadius: 0,
+  border: '1px solid var(--border2)',
+  background: 'transparent',
+  color: 'var(--text)',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 10,
+  cursor: 'pointer',
+  letterSpacing: '0.05em',
+}
+
+const btnPrimary = {
+  padding: '8px 16px',
+  borderRadius: 0,
+  border: '1px solid var(--accent)',
+  background: 'var(--accent)',
+  color: '#000',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 10,
+  fontWeight: 700,
+  cursor: 'pointer',
+  letterSpacing: '0.06em',
+}
+
+const btnDanger = {
+  ...btnStyle,
+  color: 'var(--danger)',
+  border: '1px solid rgba(217,79,61,0.4)',
+}
+
+// ── Exchange types ────────────────────────────────────────────────────────────
+type ExchangeKind = 'alpaca' | 'binance' | 'coinbase' | 'ibkr' | 'bitpanda'
+
+// ── Rotate Credentials Modal ──────────────────────────────────────────────────
+function RotateCredentialsModal({ wallet, onClose }: { wallet: WalletInfo; onClose: () => void }) {
+  const exchange = (wallet as any).exchange as ExchangeKind || 'alpaca'
+  const [fields, setFields] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
-  const [newWalletExchange, setNewWalletExchange] = useState<'alpaca' | 'binance' | 'coinbase'>('alpaca')
-  const [newWalletMode, setNewWalletMode] = useState<'paper' | 'live'>('paper')
-  const [newWalletBinanceKey, setNewWalletBinanceKey] = useState('')
-  const [newWalletBinanceSecret, setNewWalletBinanceSecret] = useState('')
-  const [newWalletCoinbaseKey, setNewWalletCoinbaseKey] = useState('')
-  const [newWalletCoinbaseSecret, setNewWalletCoinbaseSecret] = useState('')
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
-  const loadWallets = async () => {
-    try {
-      setError(null)
-      const res = await api.wallets()
-      setWallets(res.wallets)
-    } catch (e: any) {
-      setError(e.message || 'Failed to load wallets')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const setField = (key: string, val: string) =>
+    setFields(prev => ({ ...prev, [key]: val }))
 
-  useEffect(() => {
-    loadWallets().catch(() => {})
-  }, [])
-
-  const onCreate = async () => {
-    if (!name.trim()) return
-    if (newWalletExchange === 'alpaca' && (!alpacaKey.trim() || !alpacaSecret.trim())) return
+  const handleSave = async () => {
     setSaving(true)
+    setMsg(null)
     try {
-      await api.createWallet({
-        name: name.trim(),
-        alpaca_api_key: alpacaKey.trim(),
-        alpaca_api_secret: alpacaSecret.trim(),
-        alpaca_base_url: alpacaBase.trim() || 'https://paper-api.alpaca.markets',
-        exchange: newWalletExchange,
-        mode: newWalletMode,
-        binance_api_key: newWalletBinanceKey,
-        binance_api_secret: newWalletBinanceSecret,
-        coinbase_api_key: newWalletCoinbaseKey,
-        coinbase_api_secret: newWalletCoinbaseSecret,
-      } as any)
-      setName('')
-      setAlpacaKey('')
-      setAlpacaSecret('')
-      setAlpacaBase('https://paper-api.alpaca.markets')
-      setNewWalletExchange('alpaca')
-      setNewWalletMode('paper')
-      setNewWalletBinanceKey('')
-      setNewWalletBinanceSecret('')
-      setNewWalletCoinbaseKey('')
-      setNewWalletCoinbaseSecret('')
-      await loadWallets()
+      await api.rotateWalletCredentials(wallet.id, fields)
+      setMsg({ ok: true, text: 'Credentials updated successfully' })
+      setTimeout(() => onClose(), 1500)
     } catch (e: any) {
-      setError(e.message || 'Failed to create wallet')
+      setMsg({ ok: false, text: e.message || 'Failed to update credentials' })
     } finally {
       setSaving(false)
     }
   }
 
+  const fieldRow = (label: string, key: string, type: 'text' | 'password' = 'password', placeholder?: string) => (
+    <div key={key} style={{ marginBottom: 12 }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>{label}</div>
+      <input
+        type={type}
+        value={fields[key] ?? ''}
+        onChange={e => setField(key, e.target.value)}
+        placeholder={placeholder ?? 'New value...'}
+        style={inp}
+      />
+    </div>
+  )
+
   return (
-    <div style={{ padding: 28, maxWidth: 980, margin: '0 auto' }}>
-      <h2 style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)', fontSize: 16, marginBottom: 8 }}>PROFILE</h2>
-      <p style={{ fontFamily: 'var(--font-mono)', color: 'var(--muted)', fontSize: 11, marginBottom: 20 }}>
-        User: {me?.username || '-'} | Active wallets are used by trading engine and Alpaca API calls.
-      </p>
-
-      {loading && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>Loading...</div>}
-      {error && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--danger)', marginBottom: 10 }}>{error}</div>}
-
-      <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 16, marginBottom: 18 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 12 }}>WALLETS</div>
-        <div style={{ display: 'grid', gap: 10 }}>
-          {wallets.map((w) => (
-            <div key={w.id} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12, display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)' }}>
-                  {w.name} {w.active ? <span style={{ color: 'var(--green)' }}>[ACTIVE]</span> : null}
-                  <span style={{
-                    padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700,
-                    background: (w as any).mode === 'live' ? '#dc2626' : '#16a34a', color: 'white', marginLeft: '8px',
-                  }}>
-                    {(w as any).mode === 'live' ? 'LIVE' : 'PAPER'}
-                  </span>
-                </div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
-                  Key {w.alpaca_api_key_masked} | Secret {w.alpaca_api_secret_masked} | {w.alpaca_base_url}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {!w.active && (
-                  <button onClick={async () => { await api.activateWallet(w.id); await loadWallets() }} style={btn}>
-                    SWITCH
-                  </button>
-                )}
-                <button onClick={async () => {
-                  if (!window.confirm(`Delete wallet "${w.name}"?`)) return
-                  await api.deleteWallet(w.id)
-                  await loadWallets()
-                }} style={btnDanger}>
-                  DELETE
-                </button>
-              </div>
-            </div>
-          ))}
-          {wallets.length === 0 && (
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>No wallets yet.</div>
-          )}
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ background: 'var(--bg2)', border: '1px solid var(--border2)', width: 480, maxWidth: '92vw', padding: '24px 28px' }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>ROTATE CREDENTIALS</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>{wallet.name} · {exchange.toUpperCase()}</div>
+          </div>
+          <button onClick={onClose} style={{ ...btnStyle, padding: '4px 10px' }}>✕</button>
         </div>
-      </section>
 
-      <section style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 16 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 12 }}>ADD WALLET</div>
-        <div style={{ marginBottom: 10 }}>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Wallet name" style={{ ...inp, width: '100%', boxSizing: 'border-box' }} />
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--warn)', marginBottom: 16, lineHeight: 1.6 }}>
+          Leave any field blank to keep the current value. Only provided fields will be updated.
         </div>
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-          <Dropdown<'alpaca' | 'binance' | 'coinbase'>
-            value={newWalletExchange}
-            onChange={setNewWalletExchange}
-            options={[{ value: 'alpaca', label: 'Alpaca' }, { value: 'binance', label: 'Binance' }, { value: 'coinbase', label: 'Coinbase' }]}
-          />
-          <Dropdown<'paper' | 'live'>
-            value={newWalletMode}
-            onChange={setNewWalletMode}
-            options={[{ value: 'paper', label: 'Paper' }, { value: 'live', label: 'Live' }]}
-          />
-        </div>
-        {newWalletExchange === 'alpaca' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-            <input value={alpacaBase} onChange={(e) => setAlpacaBase(e.target.value)} placeholder="Base URL" style={inp} />
-            <input value={alpacaKey} onChange={(e) => setAlpacaKey(e.target.value)} placeholder="Alpaca API Key" style={inp} />
-            <input type="password" value={alpacaSecret} onChange={(e) => setAlpacaSecret(e.target.value)} placeholder="Alpaca API Secret" style={inp} />
+
+        {exchange === 'alpaca' && <>
+          {fieldRow('ALPACA API KEY', 'alpaca_api_key', 'password', 'New Alpaca API key...')}
+          {fieldRow('ALPACA API SECRET', 'alpaca_api_secret', 'password', 'New Alpaca secret...')}
+          {fieldRow('ALPACA BASE URL', 'alpaca_base_url', 'text', 'https://paper-api.alpaca.markets')}
+        </>}
+        {exchange === 'binance' && <>
+          {fieldRow('BINANCE API KEY', 'binance_api_key', 'password')}
+          {fieldRow('BINANCE API SECRET', 'binance_api_secret', 'password')}
+        </>}
+        {exchange === 'coinbase' && <>
+          {fieldRow('COINBASE CDP API KEY NAME', 'coinbase_api_key', 'text')}
+          {fieldRow('COINBASE PRIVATE KEY (PEM)', 'coinbase_api_secret', 'password')}
+        </>}
+        {exchange === 'ibkr' && <>
+          {fieldRow('IBKR GATEWAY URL', 'ibkr_gateway_url', 'text', 'http://localhost:5000')}
+          {fieldRow('IBKR SESSION TOKEN', 'ibkr_session_token', 'password')}
+        </>}
+        {exchange === 'bitpanda' && <>
+          {fieldRow('BITPANDA API KEY', 'bitpanda_api_key', 'password')}
+          {fieldRow('BITPANDA API SECRET', 'bitpanda_api_secret', 'password')}
+        </>}
+
+        {msg && (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: msg.ok ? 'var(--green)' : 'var(--danger)', marginBottom: 12 }}>
+            {msg.ok ? '✓' : '✗'} {msg.text}
           </div>
         )}
-        {newWalletExchange === 'binance' && (
-          <div style={{ marginBottom: 10 }}>
-            <input
-              placeholder="Binance API Key"
-              value={newWalletBinanceKey}
-              onChange={e => setNewWalletBinanceKey(e.target.value)}
-              style={{ width: '100%', padding: '6px', marginBottom: '6px', borderRadius: '4px', border: '1px solid #374151', background: '#1f2937', color: 'white', boxSizing: 'border-box' as const }}
-            />
-            <input
-              placeholder="Binance API Secret"
-              type="password"
-              value={newWalletBinanceSecret}
-              onChange={e => setNewWalletBinanceSecret(e.target.value)}
-              style={{ width: '100%', padding: '6px', marginBottom: '6px', borderRadius: '4px', border: '1px solid #374151', background: '#1f2937', color: 'white', boxSizing: 'border-box' as const }}
-            />
-          </div>
-        )}
-        {newWalletExchange === 'coinbase' && (
-          <div style={{ marginBottom: 10 }}>
-            <input
-              placeholder="Coinbase CDP API Key Name"
-              value={newWalletCoinbaseKey}
-              onChange={e => setNewWalletCoinbaseKey(e.target.value)}
-              style={{ width: '100%', padding: '6px', marginBottom: '6px', borderRadius: '4px', border: '1px solid #374151', background: '#1f2937', color: 'white', boxSizing: 'border-box' as const }}
-            />
-            <textarea
-              placeholder="Coinbase Private Key (PEM)"
-              value={newWalletCoinbaseSecret}
-              onChange={e => setNewWalletCoinbaseSecret(e.target.value)}
-              rows={4}
-              style={{ width: '100%', padding: '6px', marginBottom: '6px', borderRadius: '4px', border: '1px solid #374151', background: '#1f2937', color: 'white', fontFamily: 'monospace', fontSize: '12px', boxSizing: 'border-box' as const }}
-            />
-          </div>
-        )}
-        <div style={{ marginTop: 10 }}>
-          <button onClick={onCreate} disabled={saving} style={btnPrimary}>{saving ? 'SAVING...' : 'ADD WALLET'}</button>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+          <button onClick={handleSave} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>
+            {saving ? 'SAVING...' : 'UPDATE CREDENTIALS'}
+          </button>
+          <button onClick={onClose} style={btnStyle}>CANCEL</button>
         </div>
-      </section>
+      </div>
     </div>
   )
 }
 
-const inp: CSSProperties = {
-  padding: '8px 10px',
-  background: 'var(--bg3)',
-  border: '1px solid var(--border2)',
-  borderRadius: 6,
-  color: 'var(--text)',
-  fontFamily: 'var(--font-mono)',
-  fontSize: 11,
+// ── Wallet row ────────────────────────────────────────────────────────────────
+function WalletRow({ wallet, onRefresh }: { wallet: WalletInfo; onRefresh: () => void }) {
+  const [rotating, setRotating] = useState(false)
+  const [cycling, setCycling] = useState(false)
+  const [cycleMsg, setCycleMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const modeColor = (wallet as any).mode === 'live' ? 'var(--danger)' : 'var(--green)'
+
+  const handleRunCycle = async () => {
+    if (cycling) return
+    setCycling(true)
+    setCycleMsg(null)
+    try {
+      const res = await api.triggerWalletCycle(wallet.id)
+      setCycleMsg({ ok: true, text: res.message })
+    } catch (e: any) {
+      setCycleMsg({ ok: false, text: e.message || 'Failed to trigger cycle' })
+    } finally {
+      setCycling(false)
+      setTimeout(() => setCycleMsg(null), 5000)
+    }
+  }
+
+  return (
+    <>
+      {rotating && (
+        <RotateCredentialsModal wallet={wallet} onClose={() => { setRotating(false); onRefresh() }} />
+      )}
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 10 }}>
+            {wallet.name}
+            {wallet.active && <span style={{ color: 'var(--accent)', fontSize: 9, letterSpacing: '0.08em' }}>[ACTIVE]</span>}
+            <span style={{ fontSize: 9, fontWeight: 700, color: modeColor, border: `1px solid ${modeColor}`, padding: '1px 6px', letterSpacing: '0.06em' }}>
+              {(wallet as any).mode?.toUpperCase() ?? 'PAPER'}
+            </span>
+            <span style={{ fontSize: 9, color: 'var(--muted)', letterSpacing: '0.05em', border: '1px solid var(--border2)', padding: '1px 6px' }}>
+              {((wallet as any).exchange ?? 'alpaca').toUpperCase()}
+            </span>
+          </div>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
+            {wallet.alpaca_api_key_masked ? `Key ${wallet.alpaca_api_key_masked} · Secret ${wallet.alpaca_api_secret_masked}` : 'Credentials stored'}
+          </div>
+          {cycleMsg && (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: cycleMsg.ok ? 'var(--green)' : 'var(--danger)', marginTop: 4 }}>
+              {cycleMsg.ok ? '✓' : '✗'} {cycleMsg.text}
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {wallet.active && (
+            <button
+              onClick={handleRunCycle}
+              disabled={cycling}
+              style={{
+                ...btnStyle,
+                color: cycling ? 'var(--muted)' : 'var(--accent)',
+                border: cycling ? '1px solid var(--border)' : '1px solid rgba(200,255,0,0.35)',
+                cursor: cycling ? 'not-allowed' : 'pointer',
+                letterSpacing: '0.05em',
+              }}
+            >
+              {cycling ? 'RUNNING...' : 'RUN CYCLE NOW'}
+            </button>
+          )}
+          <button onClick={() => setRotating(true)} style={{ ...btnStyle, color: 'var(--accent)', border: '1px solid rgba(200,255,0,0.25)' }}>
+            ROTATE KEYS
+          </button>
+          {!wallet.active && (
+            <button onClick={async () => { await api.activateWallet(wallet.id); onRefresh() }} style={btnStyle}>
+              SWITCH
+            </button>
+          )}
+          <button onClick={async () => {
+            if (!window.confirm(`Delete wallet "${wallet.name}"?`)) return
+            await api.deleteWallet(wallet.id)
+            onRefresh()
+          }} style={btnDanger}>
+            DELETE
+          </button>
+        </div>
+      </div>
+    </>
+  )
 }
 
-const btn: CSSProperties = {
-  padding: '6px 10px',
-  borderRadius: 6,
-  border: '1px solid var(--border2)',
-  background: 'var(--bg3)',
-  color: 'var(--text)',
-  fontFamily: 'var(--font-mono)',
-  fontSize: 10,
-}
-
-const btnDanger: CSSProperties = {
-  ...btn,
-  color: 'var(--danger)',
-}
-
-const btnPrimary: CSSProperties = {
-  padding: '8px 14px',
-  borderRadius: 6,
-  border: '1px solid var(--accent)',
-  background: 'var(--accent)',
-  color: '#00131b',
-  fontFamily: 'var(--font-mono)',
-  fontSize: 10,
-  fontWeight: 700,
-}
-
+// ── Dropdown ──────────────────────────────────────────────────────────────────
 function Dropdown<T extends string>({ value, onChange, options }: {
   value: T
   onChange: (v: T) => void
@@ -246,38 +258,295 @@ function Dropdown<T extends string>({ value, onChange, options }: {
       <div
         onClick={() => setOpen(o => !o)}
         style={{
-          ...inp,
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          cursor: 'pointer', padding: '8px 10px',
-          borderColor: open ? 'var(--accent)' : 'var(--border2)',
+          padding: '7px 10px',
+          background: 'var(--bg3)',
+          border: `1px solid ${open ? 'var(--accent)' : 'var(--border2)'}`,
+          borderRadius: 0,
+          color: 'var(--text)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 11,
+          cursor: 'pointer',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
         }}
       >
         <span>{selected?.label}</span>
-        <span style={{ marginLeft: 8, color: 'var(--muted)', fontSize: 9 }}>{open ? '▲' : '▼'}</span>
+        <span style={{ color: 'var(--muted)', fontSize: 9 }}>{open ? '▲' : '▼'}</span>
       </div>
       {open && (
         <div style={{
-          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 100,
-          background: 'var(--bg3)', border: '1px solid var(--accent)', borderRadius: 6, overflow: 'hidden',
+          position: 'absolute',
+          top: '100%',
+          left: 0,
+          right: 0,
+          background: 'var(--bg3)',
+          border: '1px solid var(--border2)',
+          borderTop: 'none',
+          zIndex: 100,
         }}>
           {options.map(o => (
             <div
               key={o.value}
               onClick={() => { onChange(o.value); setOpen(false) }}
               style={{
-                padding: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 11,
+                padding: '7px 10px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: 11,
                 color: o.value === value ? 'var(--accent)' : 'var(--text)',
-                background: o.value === value ? 'var(--bg2)' : 'transparent',
+                background: o.value === value ? 'rgba(200,255,0,0.06)' : 'transparent',
                 cursor: 'pointer',
+                borderBottom: '1px solid var(--border)',
               }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg2)')}
-              onMouseLeave={e => (e.currentTarget.style.background = o.value === value ? 'var(--bg2)' : 'transparent')}
             >
               {o.label}
             </div>
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Main Profile component ────────────────────────────────────────────────────
+export function Profile({ me }: { me: AuthUser | null }) {
+  const [wallets, setWallets] = useState<WalletInfo[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  // Alpaca
+  const [alpacaKey, setAlpacaKey] = useState('')
+  const [alpacaSecret, setAlpacaSecret] = useState('')
+  const [alpacaBase, setAlpacaBase] = useState('https://paper-api.alpaca.markets')
+  // Binance
+  const [binanceKey, setBinanceKey] = useState('')
+  const [binanceSecret, setBinanceSecret] = useState('')
+  // Coinbase
+  const [coinbaseKey, setCoinbaseKey] = useState('')
+  const [coinbaseSecret, setCoinbaseSecret] = useState('')
+  // IBKR
+  const [ibkrGatewayUrl, setIbkrGatewayUrl] = useState('http://localhost:5000')
+  const [ibkrSessionToken, setIbkrSessionToken] = useState('')
+  // Bitpanda
+  const [bitpandaApiKey, setBitpandaApiKey] = useState('')
+  const [bitpandaApiSecret, setBitpandaApiSecret] = useState('')
+  // Form state
+  const [exchange, setExchange] = useState<ExchangeKind>('alpaca')
+  const [walletMode, setWalletMode] = useState<'paper' | 'live'>('paper')
+  const [saving, setSaving] = useState(false)
+
+  const loadWallets = async () => {
+    try {
+      setError(null)
+      const res = await api.wallets()
+      setWallets(res.wallets)
+    } catch (e: any) {
+      setError(e.message || 'Failed to load wallets')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { loadWallets().catch(() => {}) }, [])
+
+  const clearForm = () => {
+    setName('')
+    setAlpacaKey(''); setAlpacaSecret(''); setAlpacaBase('https://paper-api.alpaca.markets')
+    setBinanceKey(''); setBinanceSecret('')
+    setCoinbaseKey(''); setCoinbaseSecret('')
+    setIbkrGatewayUrl('http://localhost:5000'); setIbkrSessionToken('')
+    setBitpandaApiKey(''); setBitpandaApiSecret('')
+    setExchange('alpaca')
+    setWalletMode('paper')
+  }
+
+  const onCreate = async () => {
+    if (!name.trim()) return
+    if (exchange === 'alpaca' && (!alpacaKey.trim() || !alpacaSecret.trim())) return
+    setSaving(true)
+    try {
+      await api.createWallet({
+        name: name.trim(),
+        exchange,
+        mode: walletMode,
+        // Alpaca
+        alpaca_api_key:    alpacaKey.trim(),
+        alpaca_api_secret: alpacaSecret.trim(),
+        alpaca_base_url:   alpacaBase.trim() || 'https://paper-api.alpaca.markets',
+        // Binance
+        binance_api_key:    binanceKey,
+        binance_api_secret: binanceSecret,
+        // Coinbase
+        coinbase_api_key:    coinbaseKey,
+        coinbase_api_secret: coinbaseSecret,
+        // IBKR
+        ibkr_gateway_url:    ibkrGatewayUrl,
+        ibkr_session_token:  ibkrSessionToken,
+        // Bitpanda
+        bitpanda_api_key:    bitpandaApiKey,
+        bitpanda_api_secret: bitpandaApiSecret,
+      })
+      clearForm()
+      await loadWallets()
+    } catch (e: any) {
+      setError(e.message || 'Failed to create wallet')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ padding: 28, maxWidth: 980, margin: '0 auto' }}>
+      {/* Header */}
+      <div style={{ marginBottom: 28 }}>
+        <h2 className="aurora-section-title" style={{ marginBottom: 6, fontSize: '0.7rem' }}>PROFILE</h2>
+        <p style={{ fontFamily: 'var(--font-mono)', color: 'var(--muted)', fontSize: 11 }}>
+          User: <span style={{ color: 'var(--text)' }}>{me?.username || '—'}</span> · Wallets are used by the trading engine for order execution.
+        </p>
+      </div>
+
+      {loading && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', marginBottom: 12 }}>Loading...</div>}
+      {error && <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--danger)', marginBottom: 12 }}>{error}</div>}
+
+      {/* Wallets list */}
+      <section style={{ marginBottom: 20 }}>
+        <div className="aurora-section-title">WALLETS</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)' }}>
+          {wallets.length === 0 && !loading ? (
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', padding: '16px' }}>No wallets yet.</div>
+          ) : (
+            wallets.map(w => (
+              <WalletRow key={w.id} wallet={w} onRefresh={() => loadWallets().catch(() => {})} />
+            ))
+          )}
+        </div>
+      </section>
+
+      {/* Add wallet form */}
+      <section>
+        <div className="aurora-section-title">ADD WALLET</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: '20px' }}>
+          {/* Name */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>WALLET NAME</div>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. My Paper Account" style={inp} />
+          </div>
+
+          {/* Exchange + Mode */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>EXCHANGE</div>
+              <Dropdown<ExchangeKind>
+                value={exchange}
+                onChange={setExchange}
+                options={[
+                  { value: 'alpaca',   label: 'Alpaca' },
+                  { value: 'binance',  label: 'Binance' },
+                  { value: 'coinbase', label: 'Coinbase' },
+                  { value: 'ibkr',     label: 'IBKR' },
+                  { value: 'bitpanda', label: 'Bitpanda' },
+                ]}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>MODE</div>
+              <Dropdown<'paper' | 'live'>
+                value={walletMode}
+                onChange={setWalletMode}
+                options={[{ value: 'paper', label: 'Paper' }, { value: 'live', label: 'Live' }]}
+              />
+            </div>
+          </div>
+
+          {/* Exchange-specific credentials */}
+          {exchange === 'alpaca' && (
+            <div style={{ marginBottom: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>BASE URL</div>
+                <input value={alpacaBase} onChange={e => setAlpacaBase(e.target.value)} placeholder="https://paper-api.alpaca.markets" style={inp} />
+              </div>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>API KEY</div>
+                <input value={alpacaKey} onChange={e => setAlpacaKey(e.target.value)} placeholder="PKXXXX..." style={inp} />
+              </div>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>API SECRET</div>
+                <input type="password" value={alpacaSecret} onChange={e => setAlpacaSecret(e.target.value)} placeholder="Secret key" style={inp} />
+              </div>
+            </div>
+          )}
+
+          {exchange === 'binance' && (
+            <div style={{ marginBottom: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>BINANCE API KEY</div>
+                <input value={binanceKey} onChange={e => setBinanceKey(e.target.value)} style={inp} />
+              </div>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>BINANCE API SECRET</div>
+                <input type="password" value={binanceSecret} onChange={e => setBinanceSecret(e.target.value)} style={inp} />
+              </div>
+            </div>
+          )}
+
+          {exchange === 'coinbase' && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>COINBASE CDP API KEY NAME</div>
+                <input value={coinbaseKey} onChange={e => setCoinbaseKey(e.target.value)} style={inp} />
+              </div>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>COINBASE PRIVATE KEY (PEM)</div>
+                <textarea
+                  value={coinbaseSecret}
+                  onChange={e => setCoinbaseSecret(e.target.value)}
+                  placeholder="-----BEGIN EC PRIVATE KEY-----..."
+                  rows={4}
+                  style={{ ...inp, resize: 'vertical', lineHeight: 1.5 }}
+                />
+              </div>
+            </div>
+          )}
+
+          {exchange === 'ibkr' && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>IBKR GATEWAY URL</div>
+                <input value={ibkrGatewayUrl} onChange={e => setIbkrGatewayUrl(e.target.value)} placeholder="http://localhost:5000" style={inp} />
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5, opacity: 0.8 }}>
+                  Run the IBKR Client Portal Gateway locally and paste your session cookie from devtools.
+                </div>
+              </div>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>IBKR SESSION TOKEN</div>
+                <input type="password" value={ibkrSessionToken} onChange={e => setIbkrSessionToken(e.target.value)} placeholder="Session cookie value" style={inp} />
+              </div>
+            </div>
+          )}
+
+          {exchange === 'bitpanda' && (
+            <div style={{ marginBottom: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>BITPANDA API KEY</div>
+                <input type="password" value={bitpandaApiKey} onChange={e => setBitpandaApiKey(e.target.value)} style={inp} />
+              </div>
+              <div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 5 }}>BITPANDA API SECRET</div>
+                <input type="password" value={bitpandaApiSecret} onChange={e => setBitpandaApiSecret(e.target.value)} style={inp} />
+              </div>
+              <div style={{ gridColumn: '1/-1' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--muted)', lineHeight: 1.5, opacity: 0.8 }}>
+                  API key from your Bitpanda Pro account. Bitpanda Pro has no paper mode — use Alpaca paper for testing.
+                </div>
+              </div>
+            </div>
+          )}
+
+          <button onClick={onCreate} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.7 : 1 }}>
+            {saving ? 'SAVING...' : 'ADD WALLET'}
+          </button>
+        </div>
+      </section>
     </div>
   )
 }

@@ -8,6 +8,7 @@ import type { FearGreedData } from './sentiment'
 import { computeAtrPositionSize } from './risk'
 import { getConfig, type AgentConfig } from './config'
 import { getKey } from './keys'
+import { shouldTradeNet, type FeeModel } from './costs'
 
 // â”€â”€ Pricing table (USD per 1M tokens) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
@@ -135,11 +136,22 @@ export interface DecisionRuntimeContext {
     anthropic_api_key?: string
     openai_api_key?: string
   }
+  /** Wallet-level cost parameters (broker fees + tax) */
+  costConfig?: {
+    feeModel: FeeModel
+    taxRatePct: number
+    minNetProfitPct: number
+  }
 }
 
-const SYSTEM_PROMPT = `You are a crypto trading agent operating a paper trading account.
+const SYSTEM_PROMPT = `You are a trading agent operating a paper account that can trade BOTH cryptocurrencies and US equities/ETFs.
 You receive a market snapshot with technical indicators for multiple assets and your current portfolio.
 You must evaluate EVERY listed asset independently and return one decision per asset.
+
+ASSET CLASS DETECTION:
+- Symbol contains "/" (e.g. "BTC/USD", "ETH/USD") â†’ cryptocurrency, 24/7 market.
+- Symbol without "/" (e.g. "AAPL", "SPY", "MCD") â†’ US equity or ETF, regular market hours.
+The same technical indicators below apply to both classes.
 
 Indicator guide:
 - RSI(14): >70 overbought (consider sell/hold), <30 oversold (consider buy), 40-60 neutral
@@ -151,23 +163,25 @@ Indicator guide:
 - Price vs daily SMA50: above = macro uptrend, below = macro downtrend
 - 7d change: broader context beyond 24h
 
-Sentiment guide:
+Sentiment guide (most relevant for crypto):
 - Fear & Greed 0-25: Extreme Fear â€” contrarian buy signal in oversold conditions
 - Fear & Greed 25-45: Fear â€” cautious, look for quality setups
 - Fear & Greed 55-75: Greed â€” reduce size, tighten stops
 - Fear & Greed 75-100: Extreme Greed â€” avoid buying, watch for reversals
 - Market Regime: adjust position sizing and risk tolerance to match regime
 
-Rules:
-- Never risk more than MAX_POSITION_USD per trade (use ATR-adjusted suggested sizes)
-- Prefer hold when signals are mixed or ambiguous
-- Do NOT favour cheap assets â€” confidence and signal quality matter, not price
-- Diversify: avoid concentrating all activity on a single asset cycle after cycle
-- Consider capital rotation: sell weaker held assets to buy stronger unheld assets
-- For strong exit signals on held assets, you may set amount_usd to full position value
-- Account for LLM call cost shown in the prompt; avoid trades whose edge is too small
-- Reference the specific indicators that drove your decision in the reasoning
-- Use recent news as a sentiment signal but do not trade on news alone
+DECISION RULES (read carefully â€” this is the most important section):
+- TAKE A POSITION when signals lean clearly bullish or bearish. You do NOT need every indicator to align. A two-indicator setup (e.g. RSI 50-65 AND EMA9>EMA21 AND price>SMA50) is enough for a BUY at moderate confidence (0.5-0.65). Three aligned indicators justifies high confidence (0.7-0.85).
+- HOLD only when signals are genuinely mixed (e.g. neutral RSI + flat EMAs + flat MACD) or contradictory (e.g. bullish trend but extreme overbought RSI). Do not hold by default â€” you must justify a hold as much as a trade.
+- Express your conviction honestly via the confidence field. 0.4-0.5 is acceptable for moderate-conviction trades. Do NOT return confidence: 0 unless you genuinely have no view at all. The user has a confidence threshold that filters out weak signals automatically; you do not need to self-gate.
+- Never risk more than MAX_POSITION_USD per trade (use ATR-adjusted suggested sizes).
+- Do NOT favour cheap assets â€” confidence and signal quality matter, not price.
+- Diversify: avoid concentrating all activity on a single asset cycle after cycle.
+- Consider capital rotation: sell weaker held assets to buy stronger unheld assets.
+- For strong exit signals on held assets, you may set amount_usd to full position value.
+- Account for round-trip broker fees + tax shown in the prompt. Reject trades whose expected gross move is smaller than the cost floor, but otherwise act.
+- Reference 2-3 SPECIFIC indicator values in your reasoning (e.g. "RSI 58, EMA9>EMA21, +2% vs SMA50").
+- Use recent news as a sentiment signal but do not trade on news alone.
 
 Respond ONLY with a valid JSON array â€” one object per asset, in the same order as listed.
 No extra text, no markdown fences. Pure JSON array only.
@@ -338,6 +352,52 @@ function applyCostGuardrails(decisions: Decision[], costContext: CostContext | n
   })
 }
 
+/**
+ * Broker-fee + tax guardrail.
+ *
+ * expectedReturnPct derivation (heuristic, documented here):
+ *   We use `decision.confidence * baselineMovePct` where baselineMovePct = 1.0%.
+ *   Rationale: 1% is a conservative round-number estimate of the typical gross move
+ *   that a confident LLM signal targets (crypto scalp targets ~1–2%). Multiplying by
+ *   confidence (0–1) scales it down for weaker signals. We intentionally choose a LOW
+ *   baseline so that marginal signals are still caught by the fee filter. For example,
+ *   a 60%-confidence signal implies 0.6% gross expected return; after 0.6% round-trip
+ *   fees and 26% Italian CGT, the net is negative — correctly flagged.
+ */
+export function applyBrokerTaxGuardrails(
+  decisions: Decision[],
+  costConfig: DecisionRuntimeContext['costConfig'],
+): Decision[] {
+  if (!costConfig) return decisions
+  const { feeModel, taxRatePct, minNetProfitPct } = costConfig
+  const BASELINE_MOVE_PCT = 1.0
+
+  return decisions.map(decision => {
+    if (decision.action === 'hold' || decision.amount_usd <= 0) return decision
+
+    const expectedReturnPct = decision.confidence * BASELINE_MOVE_PCT
+
+    const result = shouldTradeNet({
+      notional: decision.amount_usd,
+      expectedReturnPct,
+      feeModel,
+      taxRatePct,
+      minNetProfitPct,
+    })
+
+    if (!result.ok) {
+      return {
+        ...decision,
+        action: 'hold' as const,
+        amount_usd: 0,
+        reasoning: `[fee+tax filter] ${result.reason}`,
+      }
+    }
+
+    return decision
+  })
+}
+
 async function getSystemPrompt(_userId = '__global__'): Promise<string> {
   try {
     const { PromptModel } = await import('./schema')
@@ -346,15 +406,38 @@ async function getSystemPrompt(_userId = '__global__'): Promise<string> {
   } catch { return SYSTEM_PROMPT }
 }
 
+async function buildSystemPromptForContext(ctx?: DecisionRuntimeContext): Promise<string> {
+  const base = await getSystemPrompt(ctx?.userId)
+  // Append mode-specific prompt hint if config carries one
+  const cfg = ctx?.config as (import('./config').EffectiveConfig | undefined)
+  let result = base
+  if (cfg && 'tradingMode' in cfg) {
+    const { tradingModeDefaults } = await import('./config')
+    const modeDefaults = tradingModeDefaults[cfg.tradingMode]
+    if (modeDefaults?.promptHint) {
+      result = `${result}\n\nTRADING MODE (${cfg.tradingMode.toUpperCase()}): ${modeDefaults.promptHint}`
+    }
+  }
+  // Append wallet cost parameters so the LLM avoids proposing microscopic trades
+  if (ctx?.costConfig) {
+    const { feeModel, taxRatePct, minNetProfitPct } = ctx.costConfig
+    const feeDesc = feeModel.kind === 'percent'
+      ? `${feeModel.value}%  (model: percent, minFee: $${feeModel.minFee})`
+      : `$${feeModel.value} flat  (model: flat, minFee: $${feeModel.minFee})`
+    result = `${result}\n\nTrading costs for this wallet:\n- Round-trip broker fee: ${feeDesc}\n- Capital gains tax on realized profit: ${taxRatePct}%\n- Minimum acceptable net profit: ${minNetProfitPct}%\nDo not propose trades whose expected net return is below the minimum.`
+  }
+  return result
+}
+
 async function callClaude(model: string, userPrompt: string, ctx?: DecisionRuntimeContext): Promise<string> {
   const apiKey = ctx?.keys?.anthropic_api_key || getKey('anthropic_api_key')
-  if (!apiKey) throw new Error('[brain] Anthropic API key not set â€” add it in Settings')
+  if (!apiKey) throw new Error('[brain] Anthropic API key not set — add it in Settings')
 
   if (!KNOWN_CLAUDE_MODELS.has(model)) {
-    console.warn(`[brain] Unknown Claude model "${model}" â€” attempting anyway`)
+    console.warn(`[brain] Unknown Claude model “${model}” — attempting anyway`)
   }
 
-  const systemPrompt = await getSystemPrompt(ctx?.userId)
+  const systemPrompt = await buildSystemPromptForContext(ctx)
 
   const client = new Anthropic({ apiKey })
   const msg = await client.messages.create({
@@ -375,9 +458,9 @@ async function callClaude(model: string, userPrompt: string, ctx?: DecisionRunti
 
 async function callOpenAI(model: string, userPrompt: string, ctx?: DecisionRuntimeContext): Promise<string> {
   const apiKey = ctx?.keys?.openai_api_key || getKey('openai_api_key')
-  if (!apiKey) throw new Error('[brain] OpenAI API key not set â€” add it in Settings')
+  if (!apiKey) throw new Error('[brain] OpenAI API key not set — add it in Settings')
 
-  const systemPrompt = await getSystemPrompt(ctx?.userId)
+  const systemPrompt = await buildSystemPromptForContext(ctx)
 
   const client = new OpenAI({ apiKey })
   const response = await client.chat.completions.create({
@@ -398,7 +481,7 @@ async function callOpenAI(model: string, userPrompt: string, ctx?: DecisionRunti
 }
 
 async function callOllama(userPrompt: string, ctx?: DecisionRuntimeContext): Promise<string> {
-  const systemPrompt = await getSystemPrompt(ctx?.userId)
+  const systemPrompt = await buildSystemPromptForContext(ctx)
   const res = await axios.post(`${process.env.OLLAMA_BASE_URL}/api/chat`, {
     model:   process.env.OLLAMA_MODEL || 'trading-llm',
     stream:  false,
@@ -536,7 +619,8 @@ export async function getDecisions(
     }
   }
 
-  return applyCostGuardrails(decisions, costContext, cfg)
+  const afterLlmCostGuard = applyCostGuardrails(decisions, costContext, cfg)
+  return applyBrokerTaxGuardrails(afterLlmCostGuard, runtime?.costConfig)
 }
 
 import { registerLlmStrategy } from './strategies/registry'

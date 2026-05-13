@@ -3,22 +3,23 @@ import { api } from '../api'
 import type { Trade } from '../api'
 
 const card: React.CSSProperties = {
-  background: 'var(--card)', border: '1px solid var(--border)',
-  borderRadius: 10, padding: '20px 24px',
+  background: 'var(--bg2)', border: '1px solid var(--border)',
+  padding: '20px 24px',
 }
 
 const btn = (primary = false): React.CSSProperties => ({
-  padding: '7px 16px', borderRadius: 6, fontSize: 11,
+  padding: '7px 16px', borderRadius: 0, fontSize: 11,
   fontFamily: 'var(--font-mono)', letterSpacing: '0.06em',
-  border: '1px solid var(--border)', cursor: 'pointer',
-  background: primary ? 'var(--accent)' : 'var(--card)',
+  border: primary ? '1px solid var(--accent)' : '1px solid var(--border2)', cursor: 'pointer',
+  background: primary ? 'var(--accent)' : 'transparent',
   color: primary ? '#000' : 'var(--text)',
 })
 
 const inputStyle: React.CSSProperties = {
-  padding: '7px 12px', background: 'var(--input-bg)',
-  border: '1px solid var(--border)', borderRadius: 6,
+  padding: '7px 12px', background: 'var(--bg3)',
+  border: '1px solid var(--border2)', borderRadius: 0,
   color: 'var(--text)', fontSize: 12, fontFamily: 'var(--font-mono)',
+  outline: 'none',
 }
 
 function ReplayModal({ trade, onClose }: { trade: Trade; onClose: () => void }) {
@@ -70,11 +71,11 @@ function ReplayModal({ trade, onClose }: { trade: Trade; onClose: () => void }) 
         </div>
 
         {/* Decision */}
-        <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '14px 16px' }}>
+        <div style={{ background: 'var(--bg3)', borderRadius: 0, padding: '14px 16px' }}>
           <div style={{ display: 'flex', gap: 12, marginBottom: 10, flexWrap: 'wrap' }}>
             <span style={{
               fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 700, padding: '3px 10px',
-              borderRadius: 4, background: trade.decision.action === 'buy'
+              background: trade.decision.action === 'buy'
                 ? 'rgba(0,212,130,0.15)' : trade.decision.action === 'sell'
                   ? 'rgba(239,68,68,0.15)' : 'rgba(150,150,150,0.15)',
               color: trade.decision.action === 'buy' ? 'var(--green)'
@@ -99,7 +100,7 @@ function ReplayModal({ trade, onClose }: { trade: Trade; onClose: () => void }) 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
             {rows.filter(([, v]) => v != null && v !== undefined).map(([name, val]) => (
               <div key={name} style={{
-                background: 'var(--bg)', borderRadius: 6, padding: '8px 10px',
+                background: 'var(--bg3)', borderRadius: 0, padding: '8px 10px',
                 display: 'flex', flexDirection: 'column', gap: 2,
               }}>
                 <div style={{ fontSize: 9, color: 'var(--muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{name}</div>
@@ -111,7 +112,7 @@ function ReplayModal({ trade, onClose }: { trade: Trade; onClose: () => void }) 
 
         {/* Outcome */}
         {trade.outcome && (
-          <div style={{ background: 'var(--bg)', borderRadius: 8, padding: '12px 16px' }}>
+          <div style={{ background: 'var(--bg3)', borderRadius: 0, padding: '12px 16px' }}>
             <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 8 }}>OUTCOME</div>
             <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
               {[
@@ -218,34 +219,34 @@ export function ReasoningHistory() {
           <div style={{ color: 'var(--muted)', fontSize: 12, fontFamily: 'var(--font-mono)', padding: 20 }}>No trades found.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+            <table className="aurora-table">
               <thead>
-                <tr style={{ color: 'var(--muted)' }}>
+                <tr>
                   {['Timestamp', 'Asset', 'Action', 'Amount', 'Confidence', 'PnL', 'Correct', 'Reasoning', ''].map(h => (
-                    <th key={h} style={{ textAlign: 'left', padding: '6px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
+                    <th key={h} style={{ whiteSpace: 'nowrap', textAlign: 'left' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {trades.map(t => (
-                  <tr key={t._id} style={{ borderBottom: '1px solid var(--border2)' }}>
-                    <td style={{ padding: '7px 10px', whiteSpace: 'nowrap' }}>{new Date(t.timestamp).toLocaleString()}</td>
-                    <td style={{ padding: '7px 10px' }}>{t.decision.asset.replace('/USD', '')}</td>
-                    <td style={{ padding: '7px 10px', color: t.decision.action === 'buy' ? 'var(--green)' : t.decision.action === 'sell' ? 'var(--danger)' : 'var(--muted)', fontWeight: 600 }}>
+                  <tr key={t._id}>
+                    <td style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{new Date(t.timestamp).toLocaleString()}</td>
+                    <td style={{ fontWeight: 700 }}>{t.decision.asset.replace('/USD', '')}</td>
+                    <td style={{ color: t.decision.action === 'buy' ? 'var(--green)' : t.decision.action === 'sell' ? 'var(--danger)' : 'var(--muted)', fontWeight: 700 }}>
                       {t.decision.action.toUpperCase()}
                     </td>
-                    <td style={{ padding: '7px 10px' }}>${t.decision.amount_usd.toFixed(0)}</td>
-                    <td style={{ padding: '7px 10px' }}>{(t.decision.confidence * 100).toFixed(0)}%</td>
-                    <td style={{ padding: '7px 10px', color: t.outcome ? (t.outcome.pnl_usd >= 0 ? 'var(--green)' : 'var(--danger)') : 'var(--muted)' }}>
+                    <td>${t.decision.amount_usd.toFixed(0)}</td>
+                    <td>{(t.decision.confidence * 100).toFixed(0)}%</td>
+                    <td style={{ color: t.outcome ? (t.outcome.pnl_usd >= 0 ? 'var(--green)' : 'var(--danger)') : 'var(--muted)' }}>
                       {t.outcome ? `${t.outcome.pnl_usd >= 0 ? '+' : ''}$${t.outcome.pnl_usd.toFixed(2)}` : '—'}
                     </td>
-                    <td style={{ padding: '7px 10px' }}>
+                    <td style={{ color: t.outcome ? (t.outcome.correct ? 'var(--green)' : 'var(--danger)') : 'var(--muted)' }}>
                       {t.outcome ? (t.outcome.correct ? '✓' : '✗') : '—'}
                     </td>
-                    <td style={{ padding: '7px 10px', maxWidth: 260, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--muted)' }}>
+                    <td style={{ maxWidth: 260, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--muted)', fontFamily: 'var(--font-sans)', fontSize: '0.72rem' }}>
                       {t.decision.reasoning}
                     </td>
-                    <td style={{ padding: '7px 10px' }}>
+                    <td>
                       <button onClick={() => setReplay(t)} style={{ ...btn(), padding: '3px 10px', fontSize: 10 }}>Replay</button>
                     </td>
                   </tr>

@@ -4,7 +4,14 @@ import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { UserModel } from './schema'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret-in-production'
+// SECURITY: JWT_SECRET must be set explicitly — no insecure fallback allowed.
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.trim() === '') {
+  console.error('[FATAL] JWT_SECRET environment variable is not set or is empty.')
+  console.error('[FATAL] Set JWT_SECRET to a long random string, e.g.:')
+  console.error('[FATAL]   export JWT_SECRET=$(node -e "require(\'crypto\').randomBytes(48).toString(\'hex\')|process.stdout.write")')
+  process.exit(1)
+}
+const JWT_SECRET = process.env.JWT_SECRET
 const JWT_EXPIRY = '7d'
 const LOGIN_2FA_TOKEN_EXPIRY = '10m'
 const TOTP_PERIOD_SECONDS = 30
@@ -155,8 +162,14 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 export async function ensureAdminExists(): Promise<void> {
   const existingAdmin = await UserModel.findOne({ role: 'admin' }).lean()
   if (!existingAdmin) {
+    // No admin exists yet — require ADMIN_PASSWORD to be explicitly set.
+    if (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD.trim() === '') {
+      console.error('[FATAL] No admin user exists and ADMIN_PASSWORD is not set.')
+      console.error('[FATAL] Set ADMIN_PASSWORD to a strong password before starting the server.')
+      process.exit(1)
+    }
     const adminUsername = (process.env.ADMIN_USERNAME || 'superadmin').trim().toLowerCase()
-    const password = process.env.ADMIN_PASSWORD || 'change-me-now'
+    const password = process.env.ADMIN_PASSWORD
     const passwordHash = await bcrypt.hash(password, 10)
     await UserModel.create({
       username: adminUsername,
@@ -165,8 +178,9 @@ export async function ensureAdminExists(): Promise<void> {
       blocked: false,
       twoFactorEnabled: false,
     })
-    console.log(`[auth] Created bootstrap admin user "${adminUsername}" (set ADMIN_PASSWORD env in production)`)
+    console.log(`[auth] Created bootstrap admin user "${adminUsername}"`)
   }
+  // If an admin already exists, skip silently — stale ADMIN_PASSWORD env var is fine.
 }
 
 export async function registerHandler(req: Request, res: Response): Promise<void> {

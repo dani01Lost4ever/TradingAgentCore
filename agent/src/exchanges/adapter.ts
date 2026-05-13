@@ -22,6 +22,7 @@ export interface OrderResult {
   status: string
   filled_at?: string
   filled_avg_price?: number
+  reason?: string
 }
 
 export interface Decision {

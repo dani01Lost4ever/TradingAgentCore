@@ -8,7 +8,7 @@ import type { TokenStats, TokenUsageRow } from '../api'
 
 const TOOLTIP_STYLE = {
   background: 'var(--bg3)', border: '1px solid var(--border2)',
-  borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text)',
+  fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text)',
 }
 
 function fmtTokens(n: number): string {
@@ -30,7 +30,7 @@ function StatBox({ label, value, sub, accent }: { label: string; value: string; 
   return (
     <div style={{
       background: 'var(--bg2)', border: '1px solid var(--border)',
-      borderRadius: 8, padding: '16px 20px',
+      padding: '16px 20px',
     }}>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 8 }}>
         {label}
@@ -123,15 +123,15 @@ export function Tokens() {
 
       {/* ── Header ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 28 }}>
-        <h1 style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600, letterSpacing: '0.04em', color: 'var(--accent)' }}>
+        <h1 style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--accent)' }}>
           API COST MONITOR
         </h1>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>
-          {activeWalletName ? `Wallet: ${activeWalletName} | ` : ''}Anthropic Claude all figures are estimates based on published token pricing
+          {activeWalletName ? `Wallet: ${activeWalletName} | ` : ''}Figures are estimates based on published token pricing
         </span>
         <button
           onClick={load}
-          style={{ marginLeft: 'auto', padding: '5px 14px', borderRadius: 4, border: '1px solid var(--border2)', background: 'var(--bg3)', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer' }}
+          style={{ marginLeft: 'auto', padding: '5px 14px', borderRadius: 0, border: '1px solid var(--border2)', background: 'transparent', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer' }}
         >
           ↺ Refresh
         </button>
@@ -150,7 +150,7 @@ export function Tokens() {
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 28 }}>
 
         {/* Cumulative cost curve */}
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: 20 }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 14 }}>
             CUMULATIVE COST (USD)
           </div>
@@ -178,7 +178,7 @@ export function Tokens() {
         </div>
 
         {/* Daily cost bars */}
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: 20 }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 14 }}>
             DAILY COST — LAST 30 DAYS (USD)
           </div>
@@ -214,39 +214,35 @@ export function Tokens() {
 
       {/* ── Model breakdown ── */}
       {stats.by_model.length > 0 && (
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 28 }}>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', overflow: 'hidden', marginBottom: 28 }}>
           <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em' }}>
             BY MODEL
           </div>
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table className="aurora-table" style={{ padding: '0 20px' }}>
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <tr>
                   {['Model', 'Calls', 'Input tokens', 'Output tokens', 'Total tokens', 'Cost (USD)', '% of total'].map(h => (
-                    <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.08em', fontWeight: 400, whiteSpace: 'nowrap' }}>{h}</th>
+                    <th key={h} style={{ whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {stats.by_model.map((m, i) => {
+                {stats.by_model.map((m) => {
                   const pct = stats.total_cost > 0 ? ((m.cost_usd / stats.total_cost) * 100).toFixed(1) : '0'
                   const barW = stats.total_cost > 0 ? (m.cost_usd / stats.total_cost) * 100 : 0
                   return (
-                    <tr key={m.model} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                      <td style={{ padding: '10px 16px', fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>
-                        {fmtModel(m.model)}
-                      </td>
-                      <td style={{ padding: '10px 16px', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{m.calls.toLocaleString()}</td>
-                      <td style={{ padding: '10px 16px', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmtTokens(m.input_tokens)}</td>
-                      <td style={{ padding: '10px 16px', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmtTokens(m.output_tokens)}</td>
-                      <td style={{ padding: '10px 16px', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmtTokens(m.input_tokens + m.output_tokens)}</td>
-                      <td style={{ padding: '10px 16px', fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--warn)', fontWeight: 600 }}>
-                        ${m.cost_usd.toFixed(4)}
-                      </td>
-                      <td style={{ padding: '10px 16px', minWidth: 120 }}>
+                    <tr key={m.model}>
+                      <td style={{ fontWeight: 700, color: 'var(--accent)' }}>{fmtModel(m.model)}</td>
+                      <td>{m.calls.toLocaleString()}</td>
+                      <td>{fmtTokens(m.input_tokens)}</td>
+                      <td>{fmtTokens(m.output_tokens)}</td>
+                      <td>{fmtTokens(m.input_tokens + m.output_tokens)}</td>
+                      <td style={{ color: 'var(--warn)', fontWeight: 600 }}>${m.cost_usd.toFixed(4)}</td>
+                      <td style={{ minWidth: 120 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ flex: 1, height: 4, background: 'var(--bg3)', borderRadius: 2, overflow: 'hidden' }}>
-                            <div style={{ width: `${barW}%`, height: '100%', background: 'var(--warn)', borderRadius: 2 }} />
+                          <div style={{ flex: 1, height: 3, background: 'var(--bg3)', overflow: 'hidden' }}>
+                            <div style={{ width: `${barW}%`, height: '100%', background: 'var(--warn)' }} />
                           </div>
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', minWidth: 32 }}>{pct}%</span>
                         </div>
@@ -261,33 +257,31 @@ export function Tokens() {
       )}
 
       {/* ── Per-call log ── */}
-      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', overflow: 'hidden' }}>
         <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em' }}>
           RECENT API CALLS (last {recent.length})
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <table className="aurora-table">
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+              <tr>
                 {['Time', 'Model', 'Context', 'Input', 'Output', 'Total', 'Cost'].map(h => (
-                  <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.08em', fontWeight: 400, whiteSpace: 'nowrap' }}>{h}</th>
+                  <th key={h} style={{ whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {recent.map((row, i) => (
-                <tr key={row._id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                  <td style={{ padding: '8px 16px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+              {recent.map(row => (
+                <tr key={row._id}>
+                  <td style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                     {new Date(row.ts).toLocaleString('en-GB', { month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                   </td>
-                  <td style={{ padding: '8px 16px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent)' }}>{fmtModel(row.llm_model)}</td>
-                  <td style={{ padding: '8px 16px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>{row.context}</td>
-                  <td style={{ padding: '8px 16px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{row.input_tokens.toLocaleString()}</td>
-                  <td style={{ padding: '8px 16px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{row.output_tokens.toLocaleString()}</td>
-                  <td style={{ padding: '8px 16px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{(row.input_tokens + row.output_tokens).toLocaleString()}</td>
-                  <td style={{ padding: '8px 16px', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--warn)' }}>
-                    ${row.cost_usd.toFixed(5)}
-                  </td>
+                  <td style={{ color: 'var(--accent)', fontWeight: 700 }}>{fmtModel(row.llm_model)}</td>
+                  <td style={{ color: 'var(--muted)', fontSize: '0.7rem' }}>{row.context}</td>
+                  <td>{row.input_tokens.toLocaleString()}</td>
+                  <td>{row.output_tokens.toLocaleString()}</td>
+                  <td>{(row.input_tokens + row.output_tokens).toLocaleString()}</td>
+                  <td style={{ color: 'var(--warn)' }}>${row.cost_usd.toFixed(5)}</td>
                 </tr>
               ))}
               {recent.length === 0 && (

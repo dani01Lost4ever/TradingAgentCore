@@ -15,6 +15,16 @@ export interface TradeOutcome {
   pnl_pct: number; pnl_usd: number; price_at_resolve: number
   resolved_at: string; correct: boolean
 }
+export interface FeeModel {
+  kind: 'percent' | 'flat'
+  value: number
+  minFee: number
+}
+export interface CostConfig {
+  feeModel: FeeModel
+  taxRatePct: number
+  minNetProfitPct: number
+}
 export interface Trade {
   _id: string; timestamp: string
   market: Record<string, AssetSnapshot>
@@ -24,6 +34,14 @@ export interface Trade {
   order_id?: string; approval_mode?: 'manual' | 'auto'; approved: boolean; executed: boolean
   execution_error?: string
   sl_price?: number; tp_price?: number
+  /** Net P&L after broker fees and capital-gains tax (computed at API layer) */
+  net_pnl_usd?: number
+  /** Total round-trip broker fees in USD */
+  fees_usd?: number
+  /** Capital-gains tax in USD on realized gain */
+  tax_usd?: number
+  /** Gross P&L in USD (same as outcome.pnl_usd, included for clarity) */
+  gross_pnl_usd?: number
 }
 export interface Stats {
   total_decisions: number; executed_trades: number
@@ -140,6 +158,43 @@ export interface TokenStats {
 export interface TokenUsageRow {
   _id: string; ts: string; llm_model: string
   input_tokens: number; output_tokens: number; cost_usd: number; context: string
+}
+
+export type TradingMode = 'scalp' | 'swing' | 'long_term'
+
+export interface WalletTradingConfig {
+  tradingMode: TradingMode
+  cycleMinutes: number
+  assets: string[]
+  maxTradesPerDay: number
+  minHoldingMinutes: number
+  effective: {
+    tradingMode: TradingMode
+    cycleMinutes: number
+    assets: string[]
+    maxTradesPerDay: number
+    minHoldingMinutes: number
+    stopLossPct: number
+    takeProfitPct: number
+    maxOpenPositions: number
+    promptHint: string
+  }
+}
+
+export interface DiscoveryCandidate {
+  symbol: string
+  reason: string
+  score: number
+}
+
+export interface DiscoveryRun {
+  _id: string
+  userId: string
+  walletId: string
+  ts: string
+  tradingMode: TradingMode
+  candidates: DiscoveryCandidate[]
+  source: string
 }
 
 export type KeyName = 'anthropic_api_key' | 'openai_api_key' | 'alpaca_api_key' | 'alpaca_api_secret' | 'alpaca_base_url'
@@ -295,12 +350,14 @@ export const api = {
   getKeys:        () => req<MaskedKeys>('/api/keys'),
   setKey:         (key: KeyName, value: string) => req<{ success: boolean }>('/api/keys', json({ key, value })),
   wallets:        () => req<{ wallets: WalletInfo[] }>('/api/wallets'),
-  createWallet:   (body: { name: string; alpaca_api_key: string; alpaca_api_secret: string; alpaca_base_url?: string }) =>
+  createWallet:   (body: { name: string; alpaca_api_key: string; alpaca_api_secret: string; alpaca_base_url?: string; [key: string]: any }) =>
     req<{ wallet: WalletInfo }>('/api/wallets', json(body)),
   activateWallet: (walletId: string) =>
     req<{ success: boolean }>(`/api/wallets/${encodeURIComponent(walletId)}/activate`, { method: 'POST' }),
   deleteWallet:   (walletId: string) =>
     req<{ success: boolean }>(`/api/wallets/${encodeURIComponent(walletId)}`, { method: 'DELETE' }),
+  rotateWalletCredentials: (walletId: string, body: Record<string, string>) =>
+    req<{ success: boolean }>(`/api/wallets/${encodeURIComponent(walletId)}/credentials`, json(body)),
 
   stats:          (walletId?: string) => req<Stats>(`/api/stats${walletId ? `?walletId=${walletId}` : ''}`),
   trades:         (page = 1, limit = 50, walletId?: string) => req<TradesResponse>(`/api/trades?page=${page}&limit=${limit}${walletId ? `&walletId=${walletId}` : ''}`),
@@ -373,6 +430,35 @@ export const api = {
 
   // Benchmark
   benchmark:       () => req<BenchmarkData>('/api/equity/benchmark'),
+
+  // Per-wallet trading config
+  walletTradingConfig: (walletId: string) =>
+    req<WalletTradingConfig>(`/api/wallets/${encodeURIComponent(walletId)}/trading-config`),
+  setWalletTradingConfig: (walletId: string, body: Partial<Pick<WalletTradingConfig, 'tradingMode' | 'cycleMinutes' | 'assets' | 'maxTradesPerDay' | 'minHoldingMinutes'>>) =>
+    req<{ success: boolean; wallet: Omit<WalletTradingConfig, 'effective'> }>(`/api/wallets/${encodeURIComponent(walletId)}/trading-config`, json(body)),
+
+  // Per-wallet cost config
+  getCostConfig: (walletId: string) =>
+    req<CostConfig>(`/api/wallets/${encodeURIComponent(walletId)}/cost-config`),
+  setCostConfig: (walletId: string, body: Partial<CostConfig>) =>
+    req<{ success: boolean } & CostConfig>(`/api/wallets/${encodeURIComponent(walletId)}/cost-config`, json(body)),
+
+  // Live-trading gate
+  setLiveTradingGate: (walletId: string, enabled: boolean, token?: string) =>
+    req<{ id: string; liveTrading: boolean }>(
+      `/api/wallets/${encodeURIComponent(walletId)}/live-trading`,
+      json({ enabled, token }),
+    ),
+
+  // Discovery
+  discoveryRuns: (walletId: string, limit = 20) =>
+    req<{ runs: DiscoveryRun[] }>(`/api/wallets/${encodeURIComponent(walletId)}/discovery?limit=${limit}`),
+  triggerDiscovery: (walletId: string) =>
+    req<{ run: DiscoveryRun }>(`/api/wallets/${encodeURIComponent(walletId)}/discovery/run`, { method: 'POST' }),
+
+  // Manual cycle trigger (user-scoped)
+  triggerWalletCycle: (walletId: string) =>
+    req<{ success: boolean; message: string }>(`/api/wallets/${encodeURIComponent(walletId)}/cycle`, { method: 'POST' }),
 
   // Reasoning
   reasoning: (params?: { asset?: string; action?: string; outcome?: string; limit?: number; page?: number }) => {
@@ -502,6 +588,23 @@ export async function setWalletMode(walletId: string, mode: 'paper' | 'live', to
   if (!res.ok) {
     const err = await res.json()
     throw new Error(err.error || 'Failed to set mode')
+  }
+  return res.json()
+}
+
+export async function setLiveTradingGate(
+  walletId: string,
+  enabled: boolean,
+  token?: string,
+): Promise<{ id: string; liveTrading: boolean }> {
+  const res = await fetch(`/api/wallets/${encodeURIComponent(walletId)}/live-trading`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled, token }),
+  })
+  if (!res.ok) {
+    const err = await res.json()
+    throw new Error(err.error || 'Failed to set live-trading gate')
   }
   return res.json()
 }

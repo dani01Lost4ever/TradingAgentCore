@@ -29,7 +29,6 @@ const s = {
   card: {
     background: 'var(--bg2)',
     border: '1px solid var(--border)',
-    borderRadius: 8,
     padding: '24px 28px',
     marginBottom: 24,
     width: '100%',

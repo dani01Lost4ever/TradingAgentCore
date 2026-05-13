@@ -1,5 +1,10 @@
 /* ─── Default (Dark) theme ─────────────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Sora:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Bricolage+Grotesque:wght@300;400;500;600;700&family=Sora:wght@400;500;600;700&display=swap');
+
+/* NOTE: Aurora Dark (the active default theme) is defined LAST in this file so
+   its CSS vars always win against `:root` when html has data-theme="aurora-dark".
+   Earlier we had the aurora block before `:root, [data-theme="dark"]`, which made
+   the dark cyan accent leak through (equal specificity, later-defined wins). */
 
 :root,
 [data-theme="dark"] {
@@ -153,6 +158,96 @@
   --scrollbar-thumb: #3c3836;
 }
 
+/* ─── Aurora Dark theme (Refined Dark v1) — DEFINED LAST so it overrides :root/dark ─── */
+[data-theme="aurora-dark"] {
+  --font-mono:    'IBM Plex Mono', 'Courier New', monospace;
+  --font-sans:    'Bricolage Grotesque', 'Inter Display', Inter, sans-serif;
+  /* palette */
+  --bg1:          #08090B;
+  --bg2:          #0E0F12;
+  --bg3:          #111318;
+  --border:       rgba(255,255,255,0.06);
+  --border2:      rgba(255,255,255,0.10);
+  --border-accent: rgba(200,255,0,0.32);
+  --text:         #F2F2F0;
+  --muted:        #6E7280;
+  --txt-secondary: #7A7F8A;
+  --txt-muted:    #3E4350;
+  --accent:       #C8FF00;
+  --accent-rgb:   200, 255, 0;
+  --accent-dim:   rgba(200,255,0,0.12);
+  --accent-glow:  rgba(200,255,0,0.06);
+  --accent2:      #C8FF00;
+  --green:        #C8FF00;
+  --danger:       #D94F3D;
+  --neg:          #D94F3D;
+  --warn:         #F59E0B;
+  --nav-bg:       #08090B;
+  --nav-border:   rgba(255,255,255,0.06);
+  --scrollbar-thumb: #1B1D22;
+  --radius:       0px;
+}
+
+/* Aurora-dark body: flat near-black, no gradient, with 4% SVG noise overlay */
+[data-theme="aurora-dark"] body {
+  background: var(--bg1) !important;
+}
+[data-theme="aurora-dark"] body::before {
+  opacity: 0.04 !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E") !important;
+  background-size: 200px 200px !important;
+  z-index: 9999 !important;
+}
+
+/* Aurora-dark: force no-radius on the common "card" patterns scattered across pages */
+[data-theme="aurora-dark"] table,
+[data-theme="aurora-dark"] thead,
+[data-theme="aurora-dark"] tbody,
+[data-theme="aurora-dark"] tr,
+[data-theme="aurora-dark"] th,
+[data-theme="aurora-dark"] td,
+[data-theme="aurora-dark"] input,
+[data-theme="aurora-dark"] select,
+[data-theme="aurora-dark"] textarea,
+[data-theme="aurora-dark"] button,
+[data-theme="aurora-dark"] [class*="card"]:not(.aurora-stat-cell),
+[data-theme="aurora-dark"] .stat-card,
+[data-theme="aurora-dark"] .panel {
+  border-radius: 0 !important;
+}
+
+/* Aurora-dark: table styling that actually looks like the mockup */
+[data-theme="aurora-dark"] table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+[data-theme="aurora-dark"] thead th {
+  text-transform: uppercase;
+  font-family: var(--font-sans);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  background: transparent;
+}
+[data-theme="aurora-dark"] tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--text);
+}
+[data-theme="aurora-dark"] tbody tr:hover {
+  background: rgba(200, 255, 0, 0.025);
+}
+[data-theme="aurora-dark"] tbody tr:last-child td {
+  border-bottom: none;
+}
+
 /* ─── Reset & base ─────────────────────────────────────────────────────────── */
 *, *::before, *::after {
   box-sizing: border-box;
@@ -189,6 +284,202 @@ body::before {
   background-size: 32px 32px;
   opacity: 0.18;
 }
+
+/* ─── Aurora-dark global typography & tabular numerals ─────────────────────── */
+[data-theme="aurora-dark"] body {
+  font-family: var(--font-sans);
+}
+[data-theme="aurora-dark"] .equity-hero-number {
+  font-family: var(--font-mono);
+  font-size: clamp(72px, 8vw, 108px);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "ss01";
+  line-height: 1;
+  color: var(--text);
+  animation: numFlash 1.0s 0.3s ease both;
+}
+@keyframes numFlash {
+  0%   { opacity: 0; }
+  30%  { opacity: 1; }
+  55%  { opacity: 0.6; }
+  80%  { opacity: 1; }
+  100% { opacity: 1; }
+}
+[data-theme="aurora-dark"] .aurora-tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+/* Section title bar */
+[data-theme="aurora-dark"] .aurora-section-title {
+  font-family: var(--font-sans);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--txt-secondary, var(--muted));
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+[data-theme="aurora-dark"] .aurora-section-title::after {
+  content: '';
+  display: block;
+  height: 2px;
+  width: 20px;
+  background: var(--accent);
+}
+/* Stat row grid */
+[data-theme="aurora-dark"] .aurora-stat-row {
+  display: grid;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+[data-theme="aurora-dark"] .aurora-stat-cell {
+  background: var(--bg2);
+  padding: 14px 16px;
+  position: relative;
+  transition: background 0.18s ease-out;
+}
+[data-theme="aurora-dark"] .aurora-stat-cell:hover {
+  background: var(--bg3);
+}
+[data-theme="aurora-dark"] .aurora-stat-cell::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform 0.18s ease-out;
+}
+[data-theme="aurora-dark"] .aurora-stat-cell:hover::after {
+  transform: scaleX(1);
+}
+[data-theme="aurora-dark"] .aurora-stat-label {
+  font-family: var(--font-sans);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--txt-muted, var(--muted));
+  margin-bottom: 5px;
+}
+[data-theme="aurora-dark"] .aurora-stat-val {
+  font-family: var(--font-mono);
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "ss01";
+  color: var(--text);
+  line-height: 1;
+}
+/* Table styles */
+[data-theme="aurora-dark"] .aurora-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+[data-theme="aurora-dark"] .aurora-table th {
+  font-family: var(--font-sans);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--txt-muted, var(--muted));
+  padding: 0 12px 10px 0;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+[data-theme="aurora-dark"] .aurora-table th:last-child { text-align: right; padding-right: 0; }
+[data-theme="aurora-dark"] .aurora-table td {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  color: var(--text);
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+[data-theme="aurora-dark"] .aurora-table td:last-child { text-align: right; padding-right: 0; }
+[data-theme="aurora-dark"] .aurora-table tbody tr {
+  transition: background 0.15s ease-out;
+  cursor: default;
+}
+[data-theme="aurora-dark"] .aurora-table tbody tr:hover { background: rgba(200,255,0,0.03); }
+[data-theme="aurora-dark"] .aurora-table tbody tr:hover td:first-child {
+  box-shadow: -3px 0 0 var(--accent) inset;
+}
+[data-theme="aurora-dark"] .aurora-table tbody tr:last-child td { border-bottom: none; }
+/* Log lines */
+[data-theme="aurora-dark"] .aurora-log-line {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  line-height: 1.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 0;
+  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.01em;
+}
+[data-theme="aurora-dark"] .aurora-log-line:last-child { border-bottom: none; }
+/* Card base */
+[data-theme="aurora-dark"] .aurora-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  padding: 20px 22px;
+}
+/* Nav brand */
+[data-theme="aurora-dark"] .aurora-brand {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: -0.03em;
+  color: var(--accent);
+}
+/* Live dot */
+[data-theme="aurora-dark"] .aurora-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 2s ease-in-out infinite;
+  flex-shrink: 0;
+  display: inline-block;
+}
+/* Nav link hover underline */
+[data-theme="aurora-dark"] .aurora-nav-link {
+  position: relative;
+  transition: color 0.15s ease-out;
+}
+[data-theme="aurora-dark"] .aurora-nav-link::after {
+  content: '';
+  position: absolute;
+  bottom: -2px; left: 0; right: 0;
+  height: 1px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform 0.18s ease-out;
+}
+[data-theme="aurora-dark"] .aurora-nav-link:hover::after,
+[data-theme="aurora-dark"] .aurora-nav-link.active::after {
+  transform: scaleX(1);
+}
+/* Stagger fade-up for page sections */
+[data-theme="aurora-dark"] .aurora-fade-1 { animation: fadeUp 0.5s 0.08s ease both; }
+[data-theme="aurora-dark"] .aurora-fade-2 { animation: fadeUp 0.5s 0.16s ease both; }
+[data-theme="aurora-dark"] .aurora-fade-3 { animation: fadeUp 0.5s 0.24s ease both; }
+[data-theme="aurora-dark"] .aurora-fade-4 { animation: fadeUp 0.5s 0.32s ease both; }
+[data-theme="aurora-dark"] .aurora-fade-5 { animation: fadeUp 0.5s 0.40s ease both; }
+[data-theme="aurora-dark"] .aurora-fade-6 { animation: fadeUp 0.5s 0.48s ease both; }
+[data-theme="aurora-dark"] .aurora-fade-7 { animation: fadeUp 0.5s 0.56s ease both; }
 
 button {
   cursor: pointer;

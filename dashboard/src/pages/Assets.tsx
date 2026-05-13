@@ -65,7 +65,7 @@ export function Assets() {
 
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
-        <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, letterSpacing: '0.04em', color: 'var(--accent)', marginBottom: 6 }}>
+        <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--accent)', marginBottom: 6 }}>
           TRADEABLE ASSETS
         </h2>
         <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
@@ -83,12 +83,12 @@ export function Assets() {
           style={{
             flex: 1, padding: '8px 14px',
             background: 'var(--bg2)', border: '1px solid var(--border2)',
-            borderRadius: 6, color: 'var(--text)',
+            borderRadius: 0, color: 'var(--text)',
             fontFamily: 'var(--font-mono)', fontSize: 12,
             outline: 'none',
           }}
         />
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
           {pending.size} active
         </span>
         {isDirty && (
@@ -96,11 +96,11 @@ export function Assets() {
             onClick={save}
             disabled={saving}
             style={{
-              padding: '8px 20px', borderRadius: 6,
+              padding: '8px 20px', borderRadius: 0,
               background: 'var(--accent)', color: '#000',
               fontFamily: 'var(--font-mono)', fontSize: 11,
               fontWeight: 700, letterSpacing: '0.06em',
-              border: 'none', whiteSpace: 'nowrap',
+              border: '1px solid var(--accent)', whiteSpace: 'nowrap',
             }}
           >
             {saving ? 'SAVING…' : '✓ APPLY'}
@@ -112,8 +112,8 @@ export function Assets() {
       {saveMsg && (
         <div style={{
           marginBottom: 16, padding: '10px 14px',
-          background: 'rgba(0,212,170,0.08)', border: '1px solid rgba(0,212,170,0.25)',
-          borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent)',
+          background: 'var(--accent-dim)', border: '1px solid var(--border-accent)',
+          fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent)',
         }}>
           ✓ {saveMsg}
         </div>
@@ -121,8 +121,8 @@ export function Assets() {
       {error && (
         <div style={{
           marginBottom: 16, padding: '10px 14px',
-          background: 'rgba(255,77,109,0.08)', border: '1px solid rgba(255,77,109,0.25)',
-          borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--danger)',
+          background: 'rgba(217,79,61,0.08)', border: '1px solid rgba(217,79,61,0.3)',
+          fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--danger)',
         }}>
           ✕ {error}
         </div>
@@ -140,8 +140,8 @@ export function Assets() {
             <div style={{ marginBottom: 20, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {[...active].sort().map(sym => (
                 <span key={sym} style={{
-                  padding: '3px 10px', borderRadius: 4,
-                  background: 'rgba(0,212,170,0.1)', border: '1px solid rgba(0,212,170,0.25)',
+                  padding: '3px 10px', borderRadius: 0,
+                  background: 'var(--accent-dim)', border: '1px solid var(--border-accent)',
                   fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--accent)',
                   letterSpacing: '0.05em',
                 }}>
@@ -161,9 +161,9 @@ export function Assets() {
                   onClick={() => toggle(asset.symbol)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 12,
-                    padding: '12px 14px', borderRadius: 8,
-                    background: isOn ? 'rgba(0,212,170,0.06)' : 'var(--bg2)',
-                    border: `1px solid ${isOn ? 'rgba(0,212,170,0.22)' : 'var(--border)'}`,
+                    padding: '12px 14px', borderRadius: 0,
+                    background: isOn ? 'var(--accent-dim)' : 'var(--bg2)',
+                    border: `1px solid ${isOn ? 'var(--border-accent)' : 'var(--border)'}`,
                     cursor: 'pointer', transition: 'all 0.15s',
                     userSelect: 'none',
                   }}

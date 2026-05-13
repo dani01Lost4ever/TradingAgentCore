@@ -36,6 +36,17 @@ export async function fetchPortfolio(creds?: AlpacaCredentials): Promise<Portfol
   }
 }
 
+/** Returns true for crypto symbols (e.g. BTC/USD), false for equities (e.g. MSFT). */
+function isCrypto(symbol: string): boolean {
+  return symbol.includes('/')
+}
+
+/** Returns the Alpaca data feed for equities: iex for paper accounts, sip for live. */
+function equityFeed(creds?: AlpacaCredentials): string {
+  const baseUrl = base(creds)
+  return baseUrl.includes('paper') ? 'iex' : 'sip'
+}
+
 // Fetch 100 hourly bars + 60 daily bars and compute a full indicator suite
 export async function fetchMarketSnapshot(
   assets: string[],
@@ -49,17 +60,34 @@ export async function fetchMarketSnapshot(
       const hourlyStart = new Date(Date.now() - 110 * 60 * 60 * 1000).toISOString() // 110h ago → 100+ bars
       const dailyStart  = new Date(Date.now() -  65 * 24 * 60 * 60 * 1000).toISOString() // 65d ago → 60+ bars
 
-      // Fetch hourly (100 bars for indicator warmup) and daily (60 bars for trend) in parallel
-      const [barRes, dailyRes] = await Promise.all([
-        axios.get(`${DATA}/v1beta3/crypto/us/bars`, {
-          headers: headers(creds),
-          params: { symbols: asset, timeframe: '1H', start: hourlyStart, limit: 100 },
-        }),
-        axios.get(`${DATA}/v1beta3/crypto/us/bars`, {
-          headers: headers(creds),
-          params: { symbols: asset, timeframe: '1D', start: dailyStart, limit: 60 },
-        }),
-      ])
+      let barRes: any, dailyRes: any
+
+      if (isCrypto(asset)) {
+        // ── Crypto path: /v1beta3/crypto/us/bars ──
+        ;[barRes, dailyRes] = await Promise.all([
+          axios.get(`${DATA}/v1beta3/crypto/us/bars`, {
+            headers: headers(creds),
+            params: { symbols: asset, timeframe: '1H', start: hourlyStart, limit: 100 },
+          }),
+          axios.get(`${DATA}/v1beta3/crypto/us/bars`, {
+            headers: headers(creds),
+            params: { symbols: asset, timeframe: '1D', start: dailyStart, limit: 60 },
+          }),
+        ])
+      } else {
+        // ── Equity path: /v2/stocks/bars ──
+        const feed = equityFeed(creds)
+        ;[barRes, dailyRes] = await Promise.all([
+          axios.get(`${DATA}/v2/stocks/bars`, {
+            headers: headers(creds),
+            params: { symbols: asset, timeframe: '1H', start: hourlyStart, limit: 100, feed },
+          }),
+          axios.get(`${DATA}/v2/stocks/bars`, {
+            headers: headers(creds),
+            params: { symbols: asset, timeframe: '1D', start: dailyStart, limit: 60, feed },
+          }),
+        ])
+      }
 
       const bars: any[] = barRes.data.bars[asset] || []
       const dailyBars: any[] = dailyRes.data.bars[asset] || []
@@ -239,7 +267,12 @@ function computeATR(bars: any[], period = 14): number | null {
 // Lightweight price fetch for SL/TP monitoring (no indicator computation)
 export async function fetchLatestPrices(assets: string[], creds?: AlpacaCredentials): Promise<Record<string, AssetSnapshot>> {
   const snapshot: Record<string, AssetSnapshot> = {}
-  for (const asset of assets) {
+
+  const cryptoAssets = assets.filter(a => isCrypto(a))
+  const equityAssets = assets.filter(a => !isCrypto(a))
+
+  // ── Crypto latest bars ──
+  for (const asset of cryptoAssets) {
     try {
       const res = await axios.get(`${DATA}/v1beta3/crypto/us/latest/bars`, {
         headers: headers(creds),
@@ -256,5 +289,29 @@ export async function fetchLatestPrices(assets: string[], creds?: AlpacaCredenti
       }
     } catch { /* ignore */ }
   }
+
+  // ── Equity latest bars: /v2/stocks/bars/latest?symbols=A,B,C&feed=iex|sip ──
+  if (equityAssets.length > 0) {
+    try {
+      const feed = equityFeed(creds)
+      const res = await axios.get(`${DATA}/v2/stocks/bars/latest`, {
+        headers: headers(creds),
+        params: { symbols: equityAssets.join(','), feed },
+      })
+      const bars = res.data.bars ?? {}
+      for (const asset of equityAssets) {
+        const bar = bars[asset]
+        if (!bar) continue
+        snapshot[asset] = {
+          price: bar.c,
+          change_24h: 0,
+          volume_24h: bar.v,
+          high_24h: bar.h,
+          low_24h: bar.l,
+        }
+      }
+    } catch { /* ignore */ }
+  }
+
   return snapshot
 }

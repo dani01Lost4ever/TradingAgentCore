@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aurora Trading — Overview · Long-Term ETF Portfolio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,300;1,9..144,400&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ─── Reset & Base ─────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --cream:       #FFF1E5;
+      --cream-mid:   #F5E6D3;
+      --cream-deep:  #EDD5BC;
+      --navy:        #0F1B30;
+      --navy-mid:    #1E3050;
+      --navy-light:  #2E4A70;
+      --ink:         #1A1208;
+      --ink-mid:     #3D2E1E;
+      --ink-light:   #6B5744;
+      --ink-faint:   #9E8874;
+      --oxblood:     #7A0000;
+      --oxblood-lt:  #9B1B1B;
+      --gold:        #8B6914;
+      --gold-lt:     #B8942A;
+      --rule:        rgba(15,27,48,0.18);
+      --rule-heavy:  rgba(15,27,48,0.55);
+      --positive:    #1B5E20;
+      --negative:    #7A0000;
+      --hr: 1px solid var(--rule);
+    }
+
+    html {
+      background: var(--cream);
+      color: var(--ink);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body { max-width: 1200px; margin: 0 auto; padding: 0 24px 64px; }
+
+    /* ─── Typography ────────────────────────────────────────────────────────── */
+    .serif { font-family: 'Fraunces', Georgia, serif; }
+
+    .section-label {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--ink-faint);
+    }
+
+    .tabular { font-variant-numeric: tabular-nums; }
+
+    /* ─── Masthead ──────────────────────────────────────────────────────────── */
+    .masthead {
+      border-top: 3px solid var(--navy);
+      border-bottom: var(--hr);
+      padding: 10px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .masthead-brand {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: var(--navy);
+    }
+
+    .masthead-center {
+      text-align: center;
+      flex: 1;
+    }
+
+    .masthead-title {
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--navy);
+      line-height: 1;
+    }
+
+    .masthead-wallet {
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      color: var(--ink-light);
+      text-transform: uppercase;
+      margin-top: 3px;
+      font-weight: 500;
+    }
+
+    .masthead-meta {
+      text-align: right;
+      font-size: 10px;
+      color: var(--ink-light);
+      line-height: 1.7;
+      font-weight: 400;
+    }
+
+    .masthead-meta .edition {
+      font-weight: 600;
+      color: var(--ink-mid);
+    }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      justify-content: flex-end;
+    }
+
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #2E7D32;
+      display: inline-block;
+      position: relative;
+      top: -0.5px;
+    }
+
+    /* ─── Lead / Headline Block ─────────────────────────────────────────────── */
+    .lead-section {
+      display: grid;
+      grid-template-columns: 1fr 1px 340px;
+      gap: 0;
+      padding: 28px 0 0;
+      border-bottom: var(--hr);
+      margin-bottom: 0;
+    }
+
+    .lead-main { padding-right: 32px; padding-bottom: 28px; }
+
+    .lead-kicker {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--oxblood);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .lead-kicker::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--oxblood);
+      opacity: 0.4;
+    }
+
+    .headline {
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: 38px;
+      font-weight: 700;
+      line-height: 1.08;
+      letter-spacing: -0.025em;
+      color: var(--navy);
+      margin-bottom: 16px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .dek {
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--ink-mid);
+      font-weight: 400;
+      max-width: 480px;
+      border-left: 3px solid var(--oxblood);
+      padding-left: 14px;
+      margin-bottom: 20px;
+      font-family: 'Fraunces', Georgia, serif;
+      font-style: italic;
+    }
+
+    .lead-body {
+      font-size: 13px;
+      line-height: 1.65;
+      color: var(--ink-mid);
+      columns: 2;
+      column-gap: 24px;
+      column-rule: 1px solid var(--rule);
+    }
+
+    .lead-body p + p { margin-top: 10px; }
+
+    .col-rule { width: 1px; background: var(--rule); }
+
+    .lead-sidebar { padding-left: 28px; padding-bottom: 28px; }
+
+    .lead-sidebar .section-label { margin-bottom: 12px; }
+
+    /* ─── Stat Grid ─────────────────────────────────────────────────────────── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      border-top: 2px solid var(--navy);
+      margin-bottom: 0;
+    }
+
+    .stat-cell {
+      padding: 16px 18px 16px 0;
+      border-right: var(--hr);
+      border-bottom: var(--hr);
+    }
+
+    .stat-cell:last-child { border-right: none; }
+
+    .stat-cell .label {
+      font-size: 8.5px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      font-weight: 600;
+      color: var(--ink-faint);
+      margin-bottom: 6px;
+      font-family: 'DM Sans', sans-serif;
+    }
+
+    .stat-cell .value {
+      font-family: 'Fraunces', Georgia, serif;
+      font-size: 24px;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -0.02em;
+      color: var(--navy);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-cell .sub {
+      font-size: 10px;
+      color: var(--ink-faint);
+      margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-cell .value.positive { color: var(--positive); }
+    .stat-cell .value.negative { color: var(--negative); }
+
+    /* ─── Developing Banner ─────────────────────────────────────────────────── */
+    .developing-banner {
+      border-top: 2px solid var(--oxblood);
+      border-bottom: 1px solid var(--oxblood);
+      background: #FFF8F5;
+      padding: 11px 18px;
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+    }
+
+    .developing-tag {
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: #FFF8F5;
+      background: var(--oxblood);
+      padding: 3px 7px;
+      white-space: nowrap;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .developing-body {
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--ink-mid);
+    }
+
+    .developing-body strong {
+      font-family: 'Fraunces', Georgia, serif;
+      font-weight: 600;
+      color: var(--oxblood);
+      font-size: 13px;
+    }
+
+    .developing-action {
+      margin-left: auto;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    .btn-approve {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 5px 14px;
+      background: var(--navy);
+      color: var(--cream);
+      border: none;
+      cursor: pointer;
+    }
+
+    .btn-reject {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 5px 12px;
+      background: transparent;
+      color: var(--oxblood);
+      border: 1px solid var(--oxblood);
+      cursor: pointer;
+    }
+
+    /* ─── Section Divider ───────────────────────────────────────────────────── */
+    .section-divider {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 22px 0 14px;
+    }
+
+    .section-divider .label { flex-shrink: 0; }
+
+    .section-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--rule);
+    }
+
+    /* ─── Positions Table ───────────────────────────────────────────────────── */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .data-table thead tr {
+      border-top: 2px solid var(--navy);
+      border-bottom: 1px solid var(--rule-heavy);
+    }
+
+    .data-table thead th {
+      font-size: 8.5px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--ink-faint);
+      font-family: 'DM Sans', sans-serif;
+      padding: 8px 12px 8px 0;
+      text-align: right;
+    }
+
+    .data-table thead th:first-child { text-align: left; }
+
+    .data-table tbody tr {
+      border-bottom: var(--hr);
+    }
+
+    .data-table tbody tr:last-child { border-bottom: 1px solid var(--rule-heavy); }
+
+    .data-table tbody tr:hover { background: rgba(15,27,48,0.025); }
+
+    .data-table tbody td {
+      padding: 10px 12px 10px 0;
+      font-size: 12.5px;
+      color: var(--ink-mid);
+      text-align: right;
+    }
+
+    .data-table tbody td:first-child {
+      text-align: left;
+      font-family: 'Fraunces', Georgia, serif;
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--navy);
+    }
+
+    .pos-ticker {
+      font-weight: 700;
+      color: var(--navy);
+    }
+
+    .pos-name {
+      display: block;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 10px;
+      color: var(--ink-faint);
+      font-weight: 400;
+    }
+
+    .pnl-pos { color: var(--positive); font-weight: 600; }
+    .pnl-neg { color: var(--negative); font-weight: 600; }
+
+    /* ─── Two Column Layout ─────────────────────────────────────────────────── */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1px 380px;
+      gap: 0;
+      padding-top: 0;
+    }
+
+    .col-left { padding-right: 32px; }
+    .col-right { padding-left: 28px; }
+
+    /* ─── SVG Charts ────────────────────────────────────────────────────────── */
+    .chart-container { margin-bottom: 8px; }
+
+    svg text {
+      font-family: 'DM Sans', sans-serif;
+    }
+
+    /* ─── Decision Log Table ────────────────────────────────────────────────── */
+    .log-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .log-table thead tr {
+      border-top: 2px solid var(--navy);
+      border-bottom: 1px solid var(--rule-heavy);
+    }
+
+    .log-table thead th {
+      font-size: 8.5px;
+      font-weight: 600;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--ink-faint);
+      font-family: 'DM Sans', sans-serif;
+      padding: 8px 10px 8px 0;
+      text-align: left;
+    }
+
+    .log-table tbody tr { border-bottom: var(--hr); }
+    .log-table tbody tr:hover { background: rgba(15,27,48,0.025); }
+
+    .log-table tbody td {
+      padding: 8px 10px 8px 0;
+      font-size: 11.5px;
+      color: var(--ink-mid);
+    }
+
+    .action-badge {
+      display: inline-block;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 2px 6px;
+    }
+
+    .action-buy  { background: rgba(27,94,32,0.1);  color: #1B5E20; }
+    .action-sell { background: rgba(122,0,0,0.1);   color: #7A0000; }
+    .action-hold { background: rgba(15,27,48,0.08); color: var(--navy-mid); }
+
+    .status-executed  { color: var(--positive); font-weight: 600; font-size: 10px; }
+    .status-pending   { color: var(--gold);     font-weight: 600; font-size: 10px; }
+    .status-rejected  { color: var(--negative); font-weight: 600; font-size: 10px; }
+    .status-held      { color: var(--ink-faint); font-weight: 500; font-size: 10px; }
+
+    /* ─── Sidebar Stat List ─────────────────────────────────────────────────── */
+    .sidebar-stats { list-style: none; }
+
+    .sidebar-stats li {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 8px 0;
+      border-bottom: var(--hr);
+      font-size: 12px;
+    }
+
+    .sidebar-stats li .s-label {
+      color: var(--ink-light);
+      font-size: 11px;
+    }
+
+    .sidebar-stats li .s-val {
+      font-family: 'Fraunces', Georgia, serif;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: var(--navy);
+      font-size: 13px;
+    }
+
+    .sidebar-stats li .s-val.pos { color: var(--positive); }
+    .sidebar-stats li .s-val.neg { color: var(--negative); }
+
+    /* ─── Pull-quote ────────────────────────────────────────────────────────── */
+    .pullquote {
+      border-top: 3px double var(--navy);
+      border-bottom: 3px double var(--navy);
+      padding: 16px 0;
+      margin: 22px 0;
+      font-family: 'Fraunces', Georgia, serif;
+      font-style: italic;
+      font-size: 16px;
+      line-height: 1.45;
+      color: var(--navy);
+    }
+
+    /* ─── Footer ────────────────────────────────────────────────────────────── */
+    .page-footer {
+      border-top: 2px solid var(--navy);
+      margin-top: 40px;
+      padding-top: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .page-footer .left {
+      font-size: 9.5px;
+      color: var(--ink-faint);
+      letter-spacing: 0.08em;
+    }
+
+    .page-footer .right {
+      font-size: 9.5px;
+      color: var(--ink-faint);
+      letter-spacing: 0.08em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* ─── Ticker strip ──────────────────────────────────────────────────────── */
+    .ticker-strip {
+      background: var(--navy);
+      color: var(--cream);
+      overflow: hidden;
+      white-space: nowrap;
+      height: 26px;
+      display: flex;
+      align-items: center;
+      margin: 0 -24px;
+      padding: 0 24px;
+    }
+
+    .ticker-inner {
+      display: inline-block;
+      animation: tickerScroll 40s linear infinite;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .ticker-item {
+      display: inline-block;
+      margin-right: 48px;
+    }
+
+    .ticker-item .t-sym {
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      margin-right: 6px;
+    }
+
+    .ticker-item .t-up { color: #81C784; }
+    .ticker-item .t-dn { color: #EF9A9A; }
+
+    @keyframes tickerScroll {
+      0%   { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+
+    /* ─── Responsive tweaks ─────────────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .stat-grid { grid-template-columns: repeat(3, 1fr); }
+      .lead-section { grid-template-columns: 1fr; }
+      .col-rule { display: none; }
+      .lead-sidebar { padding-left: 0; border-top: var(--hr); padding-top: 20px; }
+      .two-col { grid-template-columns: 1fr; }
+      .col-right { padding-left: 0; border-top: var(--hr); padding-top: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ═══ MASTHEAD ═══════════════════════════════════════════════════════════ -->
+  <header>
+    <div class="masthead">
+      <div class="masthead-brand">Aurora&nbsp;Trading</div>
+      <div class="masthead-center">
+        <div class="masthead-title serif">Overview</div>
+        <div class="masthead-wallet">Long-Term ETF Portfolio &middot; IBKR &middot; LIVE</div>
+      </div>
+      <div class="masthead-meta">
+        <div><span class="edition">Edition&nbsp;No.&nbsp;1,247</span></div>
+        <div>13 May 2026</div>
+        <div class="status-row">
+          <span class="status-dot"></span>
+          <span>WS Connected</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ticker strip -->
+    <div class="ticker-strip">
+      <div class="ticker-inner">
+        <span class="ticker-item"><span class="t-sym">AAPL</span><span class="t-up">$213.42 &#9650;1.24%</span></span>
+        <span class="ticker-item"><span class="t-sym">SPY</span><span class="t-up">$538.70 &#9650;0.88%</span></span>
+        <span class="ticker-item"><span class="t-sym">VOO</span><span class="t-up">$495.18 &#9650;0.91%</span></span>
+        <span class="ticker-item"><span class="t-sym">NVDA</span><span class="t-up">$924.55 &#9650;2.17%</span></span>
+        <span class="ticker-item"><span class="t-sym">QQQ</span><span class="t-up">$467.83 &#9650;1.05%</span></span>
+        <span class="ticker-item"><span class="t-sym">BRK.B</span><span class="t-dn">$419.60 &#9660;0.32%</span></span>
+        <span class="ticker-item"><span class="t-sym">MSFT</span><span class="t-up">$418.22 &#9650;0.74%</span></span>
+        <span class="ticker-item"><span class="t-sym">VTI</span><span class="t-up">$261.44 &#9650;0.79%</span></span>
+        <!-- duplicate for seamless loop -->
+        <span class="ticker-item"><span class="t-sym">AAPL</span><span class="t-up">$213.42 &#9650;1.24%</span></span>
+        <span class="ticker-item"><span class="t-sym">SPY</span><span class="t-up">$538.70 &#9650;0.88%</span></span>
+        <span class="ticker-item"><span class="t-sym">VOO</span><span class="t-up">$495.18 &#9650;0.91%</span></span>
+        <span class="ticker-item"><span class="t-sym">NVDA</span><span class="t-up">$924.55 &#9650;2.17%</span></span>
+        <span class="ticker-item"><span class="t-sym">QQQ</span><span class="t-up">$467.83 &#9650;1.05%</span></span>
+        <span class="ticker-item"><span class="t-sym">BRK.B</span><span class="t-dn">$419.60 &#9660;0.32%</span></span>
+        <span class="ticker-item"><span class="t-sym">MSFT</span><span class="t-up">$418.22 &#9650;0.74%</span></span>
+        <span class="ticker-item"><span class="t-sym">VTI</span><span class="t-up">$261.44 &#9650;0.79%</span></span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ═══ LEAD BLOCK ══════════════════════════════════════════════════════ -->
+    <section class="lead-section">
+      <div class="lead-main">
+        <div class="lead-kicker">Markets in Session &mdash; 13 May 2026</div>
+        <h1 class="headline">Equity reaches $24,318.40,<br>up 1.27% on the session</h1>
+        <p class="dek">
+          The Long-Term ETF Portfolio advances for a fourth consecutive day,
+          led by NVDA's two-per-cent surge and broad index strength. Net
+          realised P&amp;L for the session stands at +$304.18.
+        </p>
+        <div class="lead-body">
+          <p>
+            Aurora's momentum strategy issued nine decisions overnight, of which
+            five were approved for execution. The remaining four were held pending
+            manual review, consistent with the portfolio's 72-hour cooldown
+            protocol on correlated assets.
+          </p>
+          <p>
+            Drawdown from the 12 May peak of $24,606.22 remains contained at
+            1.17%, well within the 5% circuit-breaker threshold. The win rate
+            has trended upward over eleven sessions, now resting at 64.8%
+            on a rolling 30-decision basis.
+          </p>
+          <p>
+            Open interest is concentrated in large-cap US equities and
+            broad-market ETFs, with NVDA representing the largest unrealised
+            gain at +$482.30. IBKR's margin buffer stands at 81% &mdash; no
+            leverage risk indicators are active.
+          </p>
+          <p>
+            One trade awaits approval: a HOLD signal on SPY triggered by an
+            overbought RSI reading. The system recommends no action; the
+            operator may override before the 14:00 ET deadline.
+          </p>
+        </div>
+      </div>
+
+      <div class="col-rule"></div>
+
+      <div class="lead-sidebar">
+        <div class="section-label">Portfolio Snapshot</div>
+
+        <ul class="sidebar-stats">
+          <li>
+            <span class="s-label">Total Equity</span>
+            <span class="s-val">$24,318.40</span>
+          </li>
+          <li>
+            <span class="s-label">Cash Balance</span>
+            <span class="s-val">$6,214.05</span>
+          </li>
+          <li>
+            <span class="s-label">Invested Capital</span>
+            <span class="s-val">$18,104.35</span>
+          </li>
+          <li>
+            <span class="s-label">Net P&amp;L (All-time)</span>
+            <span class="s-val pos">+$2,317.55</span>
+          </li>
+          <li>
+            <span class="s-label">Day P&amp;L</span>
+            <span class="s-val pos">+$304.18</span>
+          </li>
+          <li>
+            <span class="s-label">Drawdown from Peak</span>
+            <span class="s-val neg">&minus;1.17%</span>
+          </li>
+          <li>
+            <span class="s-label">Sharpe Ratio (30d)</span>
+            <span class="s-val">1.84</span>
+          </li>
+          <li>
+            <span class="s-label">Beta (vs SPY)</span>
+            <span class="s-val">0.93</span>
+          </li>
+        </ul>
+
+        <div class="pullquote">
+          "Four consecutive session gains &mdash; the portfolio's longest
+          winning streak since inception on 04 Jan 2026."
+        </div>
+
+        <div class="section-label" style="margin-bottom:10px">Strategy Status</div>
+        <ul class="sidebar-stats">
+          <li>
+            <span class="s-label">Active Strategy</span>
+            <span class="s-val" style="font-size:11px">Momentum+RSI v2.1</span>
+          </li>
+          <li>
+            <span class="s-label">Dataset Rows</span>
+            <span class="s-val">263</span>
+          </li>
+          <li>
+            <span class="s-label">Last Sync</span>
+            <span class="s-val" style="font-size:11px">13 May 09:31</span>
+          </li>
+          <li>
+            <span class="s-label">Next Decision</span>
+            <span class="s-val" style="font-size:11px">14 May 09:30</span>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ═══ STAT GRID ═══════════════════════════════════════════════════════ -->
+    <section class="stat-grid">
+      <div class="stat-cell">
+        <div class="label">Total Decisions</div>
+        <div class="value tabular serif">1,247</div>
+        <div class="sub">since inception</div>
+      </div>
+      <div class="stat-cell">
+        <div class="label">Executed</div>
+        <div class="value tabular serif">412</div>
+        <div class="sub">33.0% fill rate</div>
+      </div>
+      <div class="stat-cell">
+        <div class="label">Win Rate</div>
+        <div class="value tabular serif">64.8%</div>
+        <div class="sub">rolling 30 decisions</div>
+      </div>
+      <div class="stat-cell">
+        <div class="label">Net P&amp;L</div>
+        <div class="value tabular serif positive">+$2,317</div>
+        <div class="sub">+10.52% return</div>
+      </div>
+      <div class="stat-cell">
+        <div class="label">Open Positions</div>
+        <div class="value tabular serif">4 <span style="font-size:14px;color:var(--ink-faint)">/ 6</span></div>
+        <div class="sub">max slots used</div>
+      </div>
+      <div class="stat-cell" style="border-right:none">
+        <div class="label">Dataset Rows</div>
+        <div class="value tabular serif">263</div>
+        <div class="sub">last ingested 09:31</div>
+      </div>
+    </section>
+
+    <!-- ═══ PENDING APPROVAL BANNER ════════════════════════════════════════ -->
+    <div class="developing-banner">
+      <div class="developing-tag">Developing</div>
+      <div class="developing-body">
+        <strong>Pending Approval &mdash; HOLD on SPY</strong><br>
+        Strategy signal: RSI(14) = 73.4 &#8594; Overbought threshold breached. Aurora recommends holding
+        538 shares of SPY. No buy or sell action required. Awaiting operator confirmation before 14:00 ET.
+      </div>
+      <div class="developing-action">
+        <button class="btn-approve">Approve</button>
+        <button class="btn-reject">Override</button>
+      </div>
+    </div>
+
+    <!-- ═══ OPEN POSITIONS ═════════════════════════════════════════════════ -->
+    <div class="section-divider">
+      <span class="section-label">Open Positions</span>
+    </div>
+
+    <table class="data-table" aria-label="Open positions">
+      <thead>
+        <tr>
+          <th style="text-align:left">Instrument</th>
+          <th>Qty</th>
+          <th>Entry</th>
+          <th>Current</th>
+          <th>Mkt Value</th>
+          <th>Unreal. P&amp;L</th>
+          <th>P&amp;L %</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <span class="pos-ticker">AAPL</span>
+            <span class="pos-name">Apple Inc.</span>
+          </td>
+          <td class="tabular">47</td>
+          <td class="tabular">$198.64</td>
+          <td class="tabular">$213.42</td>
+          <td class="tabular">$10,030.74</td>
+          <td class="tabular pnl-pos">+$694.66</td>
+          <td class="tabular pnl-pos">+7.44%</td>
+        </tr>
+        <tr>
+          <td>
+            <span class="pos-ticker">SPY</span>
+            <span class="pos-name">SPDR S&amp;P 500 ETF</span>
+          </td>
+          <td class="tabular">12</td>
+          <td class="tabular">$521.30</td>
+          <td class="tabular">$538.70</td>
+          <td class="tabular">$6,464.40</td>
+          <td class="tabular pnl-pos">+$208.80</td>
+          <td class="tabular pnl-pos">+3.34%</td>
+        </tr>
+        <tr>
+          <td>
+            <span class="pos-ticker">VOO</span>
+            <span class="pos-name">Vanguard S&amp;P 500 ETF</span>
+          </td>
+          <td class="tabular">8</td>
+          <td class="tabular">$489.75</td>
+          <td class="tabular">$495.18</td>
+          <td class="tabular">$3,961.44</td>
+          <td class="tabular pnl-pos">+$43.44</td>
+          <td class="tabular pnl-pos">+1.11%</td>
+        </tr>
+        <tr>
+          <td>
+            <span class="pos-ticker">NVDA</span>
+            <span class="pos-name">NVIDIA Corporation</span>
+          </td>
+          <td class="tabular">8</td>
+          <td class="tabular">$864.18</td>
+          <td class="tabular">$924.55</td>
+          <td class="tabular">$7,396.40</td>
+          <td class="tabular pnl-pos">+$482.96</td>
+          <td class="tabular pnl-pos">+6.99%</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- ═══ CHARTS + DECISION LOG ══════════════════════════════════════════ -->
+    <div class="two-col" style="margin-top:0; padding-top:24px; border-top: 1px solid var(--rule)">
+      <div class="col-left">
+
+        <!-- Equity Curve SVG -->
+        <div class="section-label" style="margin-bottom:14px">Equity Curve &mdash; 04 Jan to 13 May 2026</div>
+        <div class="chart-container">
+          <svg viewBox="0 0 680 210" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;overflow:visible" aria-label="Equity curve chart">
+            <!-- Horizontal grid lines -->
+            <line x1="52" y1="20"  x2="680" y2="20"  stroke="#C8B89A" stroke-width="0.5" />
+            <line x1="52" y1="62"  x2="680" y2="62"  stroke="#C8B89A" stroke-width="0.5" />
+            <line x1="52" y1="104" x2="680" y2="104" stroke="#C8B89A" stroke-width="0.5" />
+            <line x1="52" y1="146" x2="680" y2="146" stroke="#C8B89A" stroke-width="0.5" />
+            <line x1="52" y1="188" x2="680" y2="188" stroke="#C8B89A" stroke-width="0.5" />
+
+            <!-- Vertical tick marks at month boundaries -->
+            <line x1="52"  y1="188" x2="52"  y2="193" stroke="#9E8874" stroke-width="0.8"/>
+            <line x1="188" y1="188" x2="188" y2="193" stroke="#9E8874" stroke-width="0.8"/>
+            <line x1="324" y1="188" x2="324" y2="193" stroke="#9E8874" stroke-width="0.8"/>
+            <line x1="460" y1="188" x2="460" y2="193" stroke="#9E8874" stroke-width="0.8"/>
+            <line x1="596" y1="188" x2="596" y2="193" stroke="#9E8874" stroke-width="0.8"/>
+            <line x1="680" y1="188" x2="680" y2="193" stroke="#9E8874" stroke-width="0.8"/>
+
+            <!-- Y axis labels -->
+            <text x="48" y="23"  text-anchor="end" fill="#9E8874" font-size="8">$25,000</text>
+            <text x="48" y="65"  text-anchor="end" fill="#9E8874" font-size="8">$24,500</text>
+            <text x="48" y="107" text-anchor="end" fill="#9E8874" font-size="8">$24,000</text>
+            <text x="48" y="149" text-anchor="end" fill="#9E8874" font-size="8">$23,500</text>
+            <text x="48" y="191" text-anchor="end" fill="#9E8874" font-size="8">$23,000</text>
+
+            <!-- X axis labels -->
+            <text x="52"  y="202" text-anchor="middle" fill="#9E8874" font-size="8">Jan</text>
+            <text x="188" y="202" text-anchor="middle" fill="#9E8874" font-size="8">Feb</text>
+            <text x="324" y="202" text-anchor="middle" fill="#9E8874" font-size="8">Mar</text>
+            <text x="460" y="202" text-anchor="middle" fill="#9E8874" font-size="8">Apr</text>
+            <text x="596" y="202" text-anchor="middle" fill="#9E8874" font-size="8">May</text>
+
+            <!-- Peak reference dashed line -->
+            <line x1="52" y1="27" x2="680" y2="27" stroke="#8B6914" stroke-width="0.8" stroke-dasharray="4,4" />
+            <text x="676" y="24" text-anchor="end" fill="#8B6914" font-size="7.5">Peak $24,606</text>
+
+            <!-- Start reference faint line -->
+            <line x1="52" y1="162" x2="680" y2="162" stroke="#0F1B30" stroke-width="0.5" stroke-dasharray="2,6" opacity="0.22"/>
+            <text x="48" y="165" text-anchor="end" fill="#9E8874" font-size="7">Start</text>
+
+            <!-- Area fill under curve -->
+            <defs>
+              <linearGradient id="equityFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#0F1B30" stop-opacity="0.08"/>
+                <stop offset="100%" stop-color="#0F1B30" stop-opacity="0.01"/>
+              </linearGradient>
+            </defs>
+            <path
+              d="M52,162 L72,157 L95,150 L118,154 L140,145 L160,137 L182,131 L200,126
+                 L222,129 L244,121 L264,116 L284,119 L304,109 L324,103
+                 L344,107 L364,97 L384,88 L406,84 L428,76 L448,68 L460,65
+                 L480,60 L498,53 L515,46 L533,37 L548,29 L562,35 L576,40
+                 L596,44 L614,37 L632,31 L648,26 L665,30 L680,33
+                 L680,188 L52,188 Z"
+              fill="url(#equityFill)"
+            />
+
+            <!-- Main equity line -->
+            <path
+              d="M52,162 L72,157 L95,150 L118,154 L140,145 L160,137 L182,131 L200,126
+                 L222,129 L244,121 L264,116 L284,119 L304,109 L324,103
+                 L344,107 L364,97 L384,88 L406,84 L428,76 L448,68 L460,65
+                 L480,60 L498,53 L515,46 L533,37 L548,29 L562,35 L576,40
+                 L596,44 L614,37 L632,31 L648,26 L665,30 L680,33"
+              fill="none"
+              stroke="#0F1B30"
+              stroke-width="1.8"
+              stroke-linejoin="round"
+              stroke-linecap="round"
+            />
+
+            <!-- Current value dot -->
+            <circle cx="680" cy="33" r="4" fill="#0F1B30" />
+            <circle cx="680" cy="33" r="2" fill="#FFF1E5" />
+          </svg>
+        </div>
+
+        <!-- Drawdown SVG -->
+        <div class="section-label" style="margin-bottom:10px; margin-top:20px">Drawdown from Rolling Peak</div>
+        <svg viewBox="0 0 680 70" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block;overflow:visible" aria-label="Drawdown chart">
+          <line x1="52" y1="4"  x2="680" y2="4"  stroke="#C8B89A" stroke-width="0.5"/>
+          <line x1="52" y1="35" x2="680" y2="35" stroke="#C8B89A" stroke-width="0.5"/>
+          <line x1="52" y1="62" x2="680" y2="62" stroke="#C8B89A" stroke-width="0.5"/>
+
+          <text x="48" y="7"  text-anchor="end" fill="#9E8874" font-size="7.5">0%</text>
+          <text x="48" y="38" text-anchor="end" fill="#9E8874" font-size="7.5">&#8722;2.5%</text>
+          <text x="48" y="65" text-anchor="end" fill="#9E8874" font-size="7.5">&#8722;5%</text>
+
+          <path
+            d="M52,5 L72,6 L95,8 L118,6 L140,10 L160,7 L182,6 L200,9
+               L222,7 L244,6 L264,5 L284,8 L304,6 L324,5
+               L344,7 L364,9 L384,7 L406,10 L428,8 L448,7 L460,6
+               L480,5 L498,7 L515,9 L533,16 L548,24 L562,18 L576,15
+               L596,12 L614,9 L632,7 L648,5 L665,8 L680,8
+               L680,62 L52,62 Z"
+            fill="rgba(122,0,0,0.07)"
+            stroke="#7A0000"
+            stroke-width="1.2"
+            stroke-linejoin="round"
+          />
+        </svg>
+
+        <!-- Per-asset P&L Bar Chart -->
+        <div class="section-label" style="margin-bottom:14px; margin-top:28px">Per-Asset Unrealised P&amp;L</div>
+        <svg viewBox="0 0 680 145" xmlns="http://www.w3.org/2000/svg" style="width:100%;display:block" aria-label="Per-asset P&L bar chart">
+          <!-- Zero axis -->
+          <line x1="140" y1="0" x2="140" y2="132" stroke="#9E8874" stroke-width="0.8"/>
+
+          <!-- Grid verticals -->
+          <line x1="260" y1="0" x2="260" y2="132" stroke="#C8B89A" stroke-width="0.5"/>
+          <line x1="380" y1="0" x2="380" y2="132" stroke="#C8B89A" stroke-width="0.5"/>
+          <line x1="500" y1="0" x2="500" y2="132" stroke="#C8B89A" stroke-width="0.5"/>
+          <line x1="620" y1="0" x2="620" y2="132" stroke="#C8B89A" stroke-width="0.5"/>
+
+          <!-- X axis labels (scale: 140px = $0, each 120px = +$150) -->
+          <text x="140" y="142" text-anchor="middle" fill="#9E8874" font-size="8">$0</text>
+          <text x="260" y="142" text-anchor="middle" fill="#9E8874" font-size="8">+$150</text>
+          <text x="380" y="142" text-anchor="middle" fill="#9E8874" font-size="8">+$300</text>
+          <text x="500" y="142" text-anchor="middle" fill="#9E8874" font-size="8">+$450</text>
+          <text x="620" y="142" text-anchor="middle" fill="#9E8874" font-size="8">+$600</text>
+
+          <!-- AAPL: $694.66 → 694.66/150*120 = 555.7 → cap at 540 (off chart with label) -->
+          <text x="134" y="23" text-anchor="end" fill="#1A1208" font-size="11" font-weight="600" font-family="'DM Sans',sans-serif">AAPL</text>
+          <rect x="140" y="10" width="540" height="20" fill="#0F1B30" opacity="0.80"/>
+          <text x="686" y="24" fill="#1B5E20" font-size="9" font-variant-numeric="tabular-nums" font-weight="600">+$694.66</text>
+
+          <!-- NVDA: $482.96 → 482.96/150*120 = 386.4 -->
+          <text x="134" y="56" text-anchor="end" fill="#1A1208" font-size="11" font-weight="600" font-family="'DM Sans',sans-serif">NVDA</text>
+          <rect x="140" y="43" width="386" height="20" fill="#0F1B30" opacity="0.80"/>
+          <text x="532" y="57" fill="#1B5E20" font-size="9" font-variant-numeric="tabular-nums" font-weight="600">+$482.96</text>
+
+          <!-- SPY: $208.80 → 208.80/150*120 = 167 -->
+          <text x="134" y="89" text-anchor="end" fill="#1A1208" font-size="11" font-weight="600" font-family="'DM Sans',sans-serif">SPY</text>
+          <rect x="140" y="76" width="167" height="20" fill="#0F1B30" opacity="0.55"/>
+          <text x="313" y="90" fill="#1B5E20" font-size="9" font-variant-numeric="tabular-nums" font-weight="600">+$208.80</text>
+
+          <!-- VOO: $43.44 → 43.44/150*120 = 34.8 -->
+          <text x="134" y="122" text-anchor="end" fill="#1A1208" font-size="11" font-weight="600" font-family="'DM Sans',sans-serif">VOO</text>
+          <rect x="140" y="109" width="35" height="20" fill="#0F1B30" opacity="0.38"/>
+          <text x="181" y="123" fill="#1B5E20" font-size="9" font-variant-numeric="tabular-nums" font-weight="600">+$43.44</text>
+        </svg>
+
+      </div>
+
+      <div class="col-rule"></div>
+
+      <!-- Decision Log -->
+      <div class="col-right">
+        <div class="section-label" style="margin-bottom:14px">Decision Log &mdash; Recent Activity</div>
+
+        <table class="log-table" aria-label="Decision log">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Action</th>
+              <th>Asset</th>
+              <th>Strategy</th>
+              <th>Net P&amp;L</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="tabular" style="color:var(--ink-faint);font-size:10.5px">09:31</td>
+              <td><span class="action-badge action-hold">Hold</span></td>
+              <td style="font-weight:600;color:var(--navy)">SPY</td>
+              <td style="font-size:10px;color:var(--ink-faint)">RSI Overbought</td>
+              <td class="tabular" style="color:var(--ink-faint)">&mdash;</td>
+              <td><span class="status-pending">Pending</span></td>
+            </tr>
+            <tr>
+              <td class="tabular" style="color:var(--ink-faint);font-size:10.5px">09:30</td>
+              <td><span class="action-badge action-buy">Buy</span></td>
+              <td style="font-weight:600;color:var(--navy)">NVDA</td>
+              <td style="font-size:10px;color:var(--ink-faint)">Momentum+</td>
+              <td class="tabular pnl-pos">+$482.96</td>
+              <td><span class="status-executed">Executed</span></td>
+            </tr>
+            <tr>
+              <td class="tabular" style="color:var(--ink-faint);font-size:10.5px">12 May 15:58</td>
+              <td><span class="action-badge action-sell">Sell</span></td>
+              <td style="font-weight:600;color:var(--navy)">QQQ</td>
+              <td style="font-size:10px;color:var(--ink-faint)">Profit Target</td>
+              <td class="tabular pnl-pos">+$188.40</td>
+              <td><span class="status-executed">Executed</span></td>
+            </tr>
+            <tr>
+              <td class="tabular" style="color:var(--ink-faint);font-size:10.5px">12 May 14:22</td>
+              <td><span class="action-badge action-buy">Buy</span></td>
+              <td style="font-weight:600;color:var(--navy)">AAPL</td>
+              <td style="font-size:10px;color:var(--ink-faint)">Momentum+</td>
+              <td class="tabular pnl-pos">+$694.66</td>
+              <td><span class="status-executed">Executed</span></td>
+            </tr>
+            <tr>
+              <td class="tabular" style="color:var(--ink-faint);font-size:10.5px">12 May 11:05</td>
+              <td><span class="action-badge action-sell">Sell</span></td>
+              <td style="font-weight:600;color:var(--navy)">MSFT</td>
+              <td style="font-size:10px;color:var(--ink-faint)">Stop-Loss</td>
+              <td class="tabular pnl-neg">&minus;$124.20</td>
+              <td><span class="status-executed">Executed</span></td>
+            </tr>
+            <tr>
+              <td class="tabular" style="color:var(--ink-faint);font-size:10.5px">11 May 16:00</td>
+              <td><span class="action-badge action-buy">Buy</span></td>
+              <td style="font-weight:600;color:var(--navy)">VOO</td>
+              <td style="font-size:10px;color:var(--ink-faint)">DCA Signal</td>
+              <td class="tabular pnl-pos">+$43.44</td>
+              <td><span class="status-executed">Executed</span></td>
+            </tr>
+            <tr>
+              <td class="tabular" style="color:var(--ink-faint);font-size:10.5px">11 May 10:44</td>
+              <td><span class="action-badge action-hold">Hold</span></td>
+              <td style="font-weight:600;color:var(--navy)">BRK.B</td>
+              <td style="font-size:10px;color:var(--ink-faint)">Volatility Gate</td>
+              <td class="tabular" style="color:var(--ink-faint)">&mdash;</td>
+              <td><span class="status-held">Held</span></td>
+            </tr>
+            <tr>
+              <td class="tabular" style="color:var(--ink-faint);font-size:10.5px">09 May 09:32</td>
+              <td><span class="action-badge action-sell">Sell</span></td>
+              <td style="font-weight:600;color:var(--navy)">AAPL</td>
+              <td style="font-size:10px;color:var(--ink-faint)">Rebalance</td>
+              <td class="tabular pnl-pos">+$312.15</td>
+              <td><span class="status-executed">Executed</span></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Performance metrics sidebar -->
+        <div class="section-label" style="margin-top:28px; margin-bottom:12px">Performance Metrics</div>
+        <ul class="sidebar-stats">
+          <li>
+            <span class="s-label">Total Return</span>
+            <span class="s-val pos">+10.52%</span>
+          </li>
+          <li>
+            <span class="s-label">Annualised Return</span>
+            <span class="s-val pos">+23.8%</span>
+          </li>
+          <li>
+            <span class="s-label">Max Drawdown</span>
+            <span class="s-val neg">&minus;3.84%</span>
+          </li>
+          <li>
+            <span class="s-label">Avg Trade Duration</span>
+            <span class="s-val">18d 4h</span>
+          </li>
+          <li>
+            <span class="s-label">Profit Factor</span>
+            <span class="s-val">2.31</span>
+          </li>
+          <li>
+            <span class="s-label">Largest Win</span>
+            <span class="s-val pos">+$694.66</span>
+          </li>
+          <li>
+            <span class="s-label">Largest Loss</span>
+            <span class="s-val neg">&minus;$248.90</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ═══ FOOTER ════════════════════════════════════════════════════════════ -->
+  <footer class="page-footer">
+    <div class="left">
+      AURORA TRADING &mdash; Overview Report &mdash; Long-Term ETF Portfolio &middot; IBKR &middot; LIVE
+    </div>
+    <div class="right">
+      Generated 13 May 2026 &mdash; 09:31:44 ET &nbsp;|&nbsp; Aurora v2.1.0 &nbsp;|&nbsp; Not financial advice
+    </div>
+  </footer>
+
+</body>
+</html>

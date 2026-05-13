@@ -1,18 +1,26 @@
-import { UserModel, TradeModel, type AssetSnapshot } from './schema'
+import { UserModel, WalletModel, TradeModel, type AssetSnapshot } from './schema'
+import { runDiscovery } from './discovery'
 import { fetchFearAndGreed, fetchNewsHeadlines } from './sentiment'
-import { getDecisions, type Decision } from './brain'
-import { getUserConfig, type AgentConfig } from './config'
+import { getDecisions, applyBrokerTaxGuardrails, type Decision, type DecisionRuntimeContext } from './brain'
+import { getUserConfig, getEffectiveConfigForWallet, type AgentConfig } from './config'
 import { getUserKeySet, getAdapterForUser, getActiveWallet } from './keys'
 import { getStrategy, mergeWithDefaults } from './strategies/registry'
 import { logDecision, markExecuted, markExecutionFailed, resolveOutcomes, supersedePendingManualApprovals } from './logger'
 import { getRiskStatus, kellyPositionSize, monitorStopLossTakeProfit, recordEquitySnapshot } from './risk'
 import { broadcast } from './ws'
+import { logAudit } from './audit'
 
 const MAX_POSITION_USD = parseFloat(process.env.MAX_POSITION_USD || '500')
+
+interface WalletCache {
+  portfolio: import('./exchanges/adapter').Portfolio
+  market: Record<string, AssetSnapshot>
+  cachedAt: number
+}
+
 interface UserRuntime {
   userId: string
   username: string
-  paused: boolean
   blocked: boolean
   active: boolean
   lastCycleAt: string | null
@@ -26,13 +34,14 @@ interface UserRuntime {
   lastError: string | null
   cycles: number
   recentAssets: string[]
-  cachedPortfolio: import('./exchanges/adapter').Portfolio | null
-  cachedMarket: Record<string, AssetSnapshot> | null
-  cachedAt: number
+  /** Cache keyed by walletId — evicted on stopRuntime; old entries for prior wallets remain until eviction */
+  cachedByWallet: Map<string, WalletCache>
   cycleTimer: NodeJS.Timeout | null
   refreshTimer: NodeJS.Timeout | null
   outcomeTimer: NodeJS.Timeout | null
   riskTimer: NodeJS.Timeout | null
+  discoveryTimer: NodeJS.Timeout | null
+  cyclesSinceLastDiscovery: number
   role: 'admin' | 'user'
 }
 
@@ -74,13 +83,16 @@ function getHeldNotionalUsd(
   return Math.max(0, qty * px)
 }
 
-function runtimeView(rt: UserRuntime) {
+async function runtimeView(rt: UserRuntime) {
+  // Collect currently-paused walletIds from Mongo
+  const walletDocs = await WalletModel.find({ userId: rt.userId, paused: true }, '_id').lean()
+  const pausedWallets = walletDocs.map((w: any) => w._id.toString())
   return {
     userId: rt.userId,
     username: rt.username,
     role: rt.role,
     active: rt.active,
-    paused: rt.paused,
+    pausedWallets,
     blocked: rt.blocked,
     cycles: rt.cycles,
     lastCycleAt: rt.lastCycleAt,
@@ -132,7 +144,8 @@ export class EngineManager {
         rt.username = u.username
         rt.role = (u as any).role === 'admin' ? 'admin' : 'user'
         rt.blocked = Boolean((u as any).blocked)
-        if (rt.blocked) rt.paused = true
+        // NOTE: do NOT auto-flip wallet pause state here. Pause must only change via
+        // pauseWallet/resumeWallet (for users) or setBlocked→pause all wallets (for admins).
       }
     }
     for (const [userId, rt] of this.runtimes.entries()) {
@@ -147,27 +160,42 @@ export class EngineManager {
     await this.startForUser(userId, user.username, user.role === 'admin' ? 'admin' : 'user', Boolean((user as any).blocked))
   }
 
-  list(): any[] {
-    return [...this.runtimes.values()].map(runtimeView)
+  async list(): Promise<any[]> {
+    return Promise.all([...this.runtimes.values()].map(runtimeView))
   }
 
-  get(userId: string): any | null {
+  async get(userId: string): Promise<any | null> {
     const rt = this.runtimes.get(userId)
     return rt ? runtimeView(rt) : null
   }
 
-  pause(userId: string): boolean {
-    const rt = this.runtimes.get(userId)
-    if (!rt) return false
-    rt.paused = true
+  /**
+   * Pause the active wallet for a user, persisting to Mongo.
+   * Pause must NEVER be flipped to false by anything other than resumeWallet.
+   */
+  async pauseWallet(userId: string, walletId: string, reason?: string): Promise<boolean> {
+    const wallet = await WalletModel.findOne({ _id: walletId, userId })
+    if (!wallet) return false
+    wallet.paused = true
+    wallet.pausedAt = new Date()
+    wallet.pausedReason = reason || null
+    await wallet.save()
     return true
   }
 
-  resume(userId: string): boolean {
+  /**
+   * Resume a wallet — the only place where paused is set to false.
+   */
+  async resumeWallet(userId: string, walletId: string): Promise<boolean> {
     const rt = this.runtimes.get(userId)
-    if (!rt) return false
-    if (rt.blocked) return false
-    rt.paused = false
+    if (rt?.blocked) return false
+    const wallet = await WalletModel.findOne({ _id: walletId, userId })
+    if (!wallet) return false
+    wallet.paused = false
+    wallet.pausedAt = null
+    wallet.pausedReason = null
+    await wallet.save()
+    await logAudit('wallet.resume', `Wallet ${walletId} resumed`, userId)
     return true
   }
 
@@ -184,25 +212,56 @@ export class EngineManager {
     if (rt.refreshTimer) clearTimeout(rt.refreshTimer)
     if (rt.outcomeTimer) clearTimeout(rt.outcomeTimer)
     if (rt.riskTimer) clearTimeout(rt.riskTimer)
+    if (rt.discoveryTimer) clearTimeout(rt.discoveryTimer)
+    // Evict all cache entries for this user
+    rt.cachedByWallet.clear()
     this.runtimes.delete(rt.userId)
   }
 
-  setBlocked(userId: string, blocked: boolean): boolean {
+  /**
+   * setBlocked — when blocking, persist pause=true on ALL wallets.
+   * When unblocking, do NOT auto-resume any wallet; admin must explicitly resumeWallet.
+   */
+  async setBlocked(userId: string, blocked: boolean): Promise<boolean> {
     const rt = this.runtimes.get(userId)
     if (!rt) return false
     rt.blocked = blocked
-    if (blocked) rt.paused = true
+    if (blocked) {
+      // Persist pause=true on every wallet for this user
+      await WalletModel.updateMany(
+        { userId },
+        { paused: true, pausedAt: new Date(), pausedReason: 'Account blocked by admin' },
+      )
+    }
+    // When unblocking: wallets remain paused until explicit resumeWallet
     return true
+  }
+
+  /**
+   * notifyWalletSwitch — called by api.ts after activateUserWallet succeeds.
+   * 1. Evicts cache for the wallet that was previously active (we don't know its id,
+   *    so we wipe the entire map — simple and safe for v1).
+   * 2. Broadcasts wallet:switched so all tabs see the new wallet immediately.
+   * 3. Fires an immediate runCycle (fire-and-forget).
+   */
+  notifyWalletSwitch(userId: string, walletId: string): void {
+    const rt = this.runtimes.get(userId)
+    if (!rt) return
+    // Evict cache for previous active wallet entries (simple: clear all; they'll be refilled on demand)
+    rt.cachedByWallet.clear()
+    broadcast('wallet:switched', { walletId }, userId)
+    this.runCycle(rt).catch((e) => console.error(`[engine:${rt.username}] notifyWalletSwitch cycle error:`, e.message))
   }
 
   private async startForUser(userId: string, username: string, role: 'admin' | 'user', blocked: boolean): Promise<void> {
     const rt: UserRuntime = {
-      userId, username, role, blocked, active: true, paused: role === 'admin' || blocked,
+      userId, username, role, blocked, active: true,
       lastCycleAt: null, nextCycleAt: null, lastError: null, cycles: 0,
       lastDataRefreshAt: null, nextDataRefreshAt: null, nextOutcomeAt: null, nextRiskCheckAt: null,
       cycleIntervalMinutes: null, dataIntervalMinutes: null,
-      recentAssets: [], cachedPortfolio: null, cachedMarket: null, cachedAt: 0,
+      recentAssets: [], cachedByWallet: new Map(),
       cycleTimer: null, refreshTimer: null, outcomeTimer: null, riskTimer: null,
+      discoveryTimer: null, cyclesSinceLastDiscovery: 0,
     }
     this.runtimes.set(userId, rt)
     await this.runCycle(rt).catch((e) => console.error(`[engine:${username}] bootstrap cycle error:`, e.message))
@@ -210,13 +269,16 @@ export class EngineManager {
     this.scheduleDataRefresh(rt)
     this.scheduleOutcomeResolution(rt)
     this.scheduleRiskMonitor(rt)
+    this.scheduleDiscovery(rt)
   }
 
   private scheduleCycle(rt: UserRuntime): void {
     if (!rt.active) return
     const schedule = async () => {
       if (!rt.active) return
-      const cfg = await getUserConfig(rt.userId)
+      const activeWallet = await getActiveWallet(rt.userId)
+      const walletId = activeWallet?._id?.toString()
+      const cfg = await getEffectiveConfigForWallet(rt.userId, walletId)
       const mins = (cfg.activeStrategy === 'llm' || (cfg.activeStrategy === 'auto' && cfg.autoFallbackToLlm))
         ? cfg.cycleMinutes
         : cfg.marketDataMinutes
@@ -240,7 +302,9 @@ export class EngineManager {
     if (!rt.active) return
     const schedule = async () => {
       if (!rt.active) return
-      const cfg = await getUserConfig(rt.userId)
+      const activeWallet = await getActiveWallet(rt.userId)
+      const walletId = activeWallet?._id?.toString()
+      const cfg = await getEffectiveConfigForWallet(rt.userId, walletId)
       rt.dataIntervalMinutes = cfg.marketDataMinutes
       rt.nextDataRefreshAt = new Date(Date.now() + cfg.marketDataMinutes * 60_000).toISOString()
       rt.refreshTimer = setTimeout(async () => {
@@ -285,7 +349,9 @@ export class EngineManager {
       rt.nextRiskCheckAt = new Date(Date.now() + 2 * 60_000).toISOString()
       rt.riskTimer = setTimeout(async () => {
         try {
-          const [cfg, adapter] = await Promise.all([getUserConfig(rt.userId), getAdapterForUser(rt.userId)])
+          const activeWallet = await getActiveWallet(rt.userId)
+          const walletId = activeWallet?._id?.toString()
+          const [cfg, adapter] = await Promise.all([getEffectiveConfigForWallet(rt.userId, walletId), getAdapterForUser(rt.userId)])
           const prices = await adapter.fetchLatestPrices(cfg.assets)
           await monitorStopLossTakeProfit(prices, rt.userId, adapter, cfg)
         } catch (e: any) {
@@ -297,36 +363,121 @@ export class EngineManager {
     loop()
   }
 
+  /**
+   * triggerDiscovery — runs an immediate discovery for the given wallet.
+   */
+  async triggerDiscovery(userId: string, walletId: string): Promise<import('./schema').DiscoveryRunDoc | null> {
+    try {
+      const cfg = await getEffectiveConfigForWallet(userId, walletId)
+      return await runDiscovery(userId, walletId, cfg.tradingMode)
+    } catch (e: any) {
+      console.error(`[engine] triggerDiscovery error:`, e.message)
+      return null
+    }
+  }
+
+  private scheduleDiscovery(rt: UserRuntime): void {
+    if (!rt.active) return
+    const loop = async () => {
+      if (!rt.active) return
+      const activeWallet = await getActiveWallet(rt.userId)
+      if (!activeWallet) return
+      const walletId = activeWallet._id?.toString()
+      if (!walletId) return
+      const cfg = await getEffectiveConfigForWallet(rt.userId, walletId)
+      const tradingMode = cfg.tradingMode
+
+      // Cadence: long_term = 1×/day (1440min), swing = every 2 cycles, scalp = every 4 cycles
+      // We implement via a time-based interval
+      const intervalMs = tradingMode === 'long_term'
+        ? 24 * 60 * 60_000        // 1× per day
+        : tradingMode === 'swing'
+          ? 2 * cfg.cycleMinutes * 60_000   // every 2 cycles
+          : 4 * cfg.cycleMinutes * 60_000   // every 4 cycles (scalp)
+
+      rt.discoveryTimer = setTimeout(async () => {
+        try {
+          if (rt.active && !activeWallet.paused) {
+            await runDiscovery(rt.userId, walletId, tradingMode)
+          }
+        } catch (e: any) {
+          console.error(`[engine:${rt.username}] discovery error:`, e.message)
+        }
+        loop()
+      }, intervalMs)
+    }
+    loop().catch((e) => console.error(`[engine:${rt.username}] scheduleDiscovery error:`, e.message))
+  }
+
   private async refreshMarketData(
     rt: UserRuntime,
     cfg: AgentConfig,
-    force = false
+    force = false,
+    walletId?: string
   ): Promise<{ portfolio: import('./exchanges/adapter').Portfolio; market: Record<string, AssetSnapshot> }> {
     const cacheMaxAgeMs = Math.max(15_000, cfg.marketDataMinutes * 60 * 1000 - 5_000)
-    const cacheFresh = !force && rt.cachedPortfolio && rt.cachedMarket && (Date.now() - rt.cachedAt) < cacheMaxAgeMs
-    if (cacheFresh) return { portfolio: rt.cachedPortfolio!, market: rt.cachedMarket! }
+    const cacheKey = walletId || '__default__'
+    const cached = rt.cachedByWallet.get(cacheKey)
+    const cacheFresh = !force && cached && (Date.now() - cached.cachedAt) < cacheMaxAgeMs
+    if (cacheFresh) return { portfolio: cached!.portfolio, market: cached!.market }
 
     const adapter = await getAdapterForUser(rt.userId)
     const [portfolio, market] = await Promise.all([
       adapter.fetchPortfolio(),
       adapter.fetchMarketSnapshot(cfg.assets),
     ])
-    rt.cachedPortfolio = portfolio
-    rt.cachedMarket = market
-    rt.cachedAt = Date.now()
+    rt.cachedByWallet.set(cacheKey, { portfolio, market, cachedAt: Date.now() })
     rt.lastDataRefreshAt = new Date().toISOString()
     broadcast('portfolio', { cash: portfolio.cash_usd, equity: portfolio.equity_usd }, rt.userId)
     return { portfolio, market }
   }
 
+  /**
+   * Apply broker-fee + tax guardrails to a decision list.
+   * Both the LLM branch (via getDecisions) and the rule-based branch call this
+   * so cost enforcement is DRY and consistent regardless of strategy type.
+   */
+  private applyWalletCostGuardrails(
+    decisions: Decision[],
+    costConfig: DecisionRuntimeContext['costConfig'],
+  ): Decision[] {
+    return applyBrokerTaxGuardrails(decisions, costConfig)
+  }
+
   private async runCycle(rt: UserRuntime): Promise<void> {
-    if (!rt.active || rt.paused || rt.blocked) return
-    const cfg = await getUserConfig(rt.userId)
-    const [keys, adapter] = await Promise.all([getUserKeySet(rt.userId), getAdapterForUser(rt.userId)])
+    if (!rt.active || rt.blocked) return
+
+    // Read pause state from Mongo (persisted; survives restart)
     const activeWallet = await getActiveWallet(rt.userId)
-    const walletId = activeWallet?._id?.toString()
+    if (!activeWallet) return
+    if (activeWallet.paused) return  // Safety: paused wallets never execute
+
+    // Live-trading hard gate: even if mode is 'live', the user must have explicitly
+    // opted in by toggling liveTrading=true. This is a defense-in-depth check on top
+    // of wallet.mode. Default state is liveTrading=false, so a fresh wallet cannot
+    // trade real money even if mode was somehow set to 'live'.
+    if ((activeWallet as any).mode === 'live' && !(activeWallet as any).liveTrading) {
+      console.warn(`[engine:${rt.username}] wallet ${activeWallet._id?.toString()} mode=live but liveTrading gate is false — skipping cycle`)
+      return
+    }
+
+    const walletId = activeWallet._id?.toString()
+    const cfg = await getEffectiveConfigForWallet(rt.userId, walletId)
+
+    // Build cost config from wallet doc so guardrails fire in automated cycles (Fix #3)
+    const walletCostConfig: import('./brain').DecisionRuntimeContext['costConfig'] = {
+      feeModel: {
+        kind:   (activeWallet as any).feeModel?.kind   ?? 'percent',
+        value:  (activeWallet as any).feeModel?.value  ?? 0,
+        minFee: (activeWallet as any).feeModel?.minFee ?? 0,
+      },
+      taxRatePct:      (activeWallet as any).taxRatePct      ?? 26,
+      minNetProfitPct: (activeWallet as any).minNetProfitPct ?? 0.5,
+    }
+
+    const [keys, adapter] = await Promise.all([getUserKeySet(rt.userId), getAdapterForUser(rt.userId)])
     try {
-      const { portfolio, market } = await this.refreshMarketData(rt, cfg)
+      const { portfolio, market } = await this.refreshMarketData(rt, cfg, false, walletId)
       const riskStatus = await getRiskStatus(cfg as any, portfolio.equity_usd, rt.userId)
       if (riskStatus.circuitBreakerActive) {
         await recordEquitySnapshot(portfolio, rt.userId, walletId)
@@ -352,6 +503,7 @@ export class EngineManager {
             walletId,
             config: cfg,
             keys: { anthropic_api_key: keys.anthropic_api_key, openai_api_key: keys.openai_api_key },
+            costConfig: walletCostConfig,
           },
         )
       } else {
@@ -363,9 +515,45 @@ export class EngineManager {
             return { asset, result }
           })
         )
-        decisions = stratResults.filter(({ result }) => result.signal !== 'none').map(({ asset, result }) => ({
+        const rawDecisions: Decision[] = stratResults.filter(({ result }) => result.signal !== 'none').map(({ asset, result }) => ({
           action: result.action, asset, amount_usd: result.amount_usd, confidence: result.confidence, reasoning: result.reasoning,
         }))
+        // Apply broker-fee + tax guardrails to rule-based decisions (Fix #8)
+        decisions = this.applyWalletCostGuardrails(rawDecisions, walletCostConfig)
+      }
+
+      // ── maxTradesPerDay enforcement ─────────────────────────────────────────
+      const effectiveCfg = cfg as import('./config').EffectiveConfig
+      let todayTradeCount = 0
+      if (effectiveCfg.maxTradesPerDay > 0) {
+        const startOfDayUTC = new Date()
+        startOfDayUTC.setUTCHours(0, 0, 0, 0)
+        todayTradeCount = await TradeModel.countDocuments({
+          userId: rt.userId,
+          walletId,
+          executed: true,
+          timestamp: { $gte: startOfDayUTC },
+          'decision.action': { $ne: 'hold' },
+        })
+      }
+
+      // ── minHoldingMinutes enforcement (for SELL decisions) ─────────────────
+      // Build map of asset -> last BUY timestamp for open positions
+      const lastBuyByAsset: Map<string, Date> = new Map()
+      if (effectiveCfg.minHoldingMinutes > 0) {
+        const openBuys = await TradeModel.find({
+          userId: rt.userId,
+          walletId,
+          executed: true,
+          outcome: { $exists: false },
+          'decision.action': 'buy',
+        }).sort({ timestamp: -1 }).lean()
+        for (const trade of openBuys) {
+          const asset = trade.decision.asset
+          if (!lastBuyByAsset.has(asset)) {
+            lastBuyByAsset.set(asset, new Date(trade.timestamp))
+          }
+        }
       }
 
       const normalized: Decision[] = []
@@ -376,6 +564,20 @@ export class EngineManager {
         }
         if (cfg.kellyEnabled && decision.action === 'buy') {
           decision.amount_usd = await kellyPositionSize(decision.asset, decision.amount_usd, MAX_POSITION_USD, rt.userId)
+        }
+        // Enforce maxTradesPerDay
+        if (effectiveCfg.maxTradesPerDay > 0 && decision.action !== 'hold' && todayTradeCount >= effectiveCfg.maxTradesPerDay) {
+          decision = { ...decision, action: 'hold', amount_usd: 0, reasoning: `maxTradesPerDay (${effectiveCfg.maxTradesPerDay}) reached for this wallet` }
+        }
+        // Enforce minHoldingMinutes for SELL decisions
+        if (decision.action === 'sell' && effectiveCfg.minHoldingMinutes > 0) {
+          const buyTs = lastBuyByAsset.get(decision.asset)
+          if (buyTs) {
+            const heldMinutes = (Date.now() - buyTs.getTime()) / 60_000
+            if (heldMinutes < effectiveCfg.minHoldingMinutes) {
+              decision = { ...decision, action: 'hold', amount_usd: 0, reasoning: `minHoldingMinutes (${effectiveCfg.minHoldingMinutes}) not met — held ${Math.floor(heldMinutes)}min` }
+            }
+          }
         }
         normalized.push(decision)
       }

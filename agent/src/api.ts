@@ -1,11 +1,12 @@
 import express from 'express'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
-import { TradeModel, EquityModel, TokenUsageModel, AuditLogModel, PromptModel, BacktestResultModel, OptimizeResultModel, UserModel, WalletModel } from './schema'
+import { TradeModel, EquityModel, TokenUsageModel, AuditLogModel, PromptModel, BacktestResultModel, OptimizeResultModel, UserModel, WalletModel, DiscoveryRunModel } from './schema'
 import { executeOrder } from './executor'
 import { markExecuted, markExecutionFailed, exportDataset, expireStaleManualApprovals } from './logger'
+import { computeNetPnL, type FeeModel } from './costs'
 import { getLogs } from './logs'
-import { getConfig, getUserConfig, setUserConfig } from './config'
+import { getConfig, getUserConfig, setUserConfig, getEffectiveConfigForWallet, tradingModeDefaults } from './config'
 import {
   requireAuth,
   loginHandler,
@@ -18,7 +19,7 @@ import {
   changePasswordHandler,
   isAdminUser,
 } from './auth'
-import { getKey, getMaskedKeysForUser, getUserKey, getUserKeySet, setUserKey, KEY_NAMES, listUserWallets, createUserWallet, activateUserWallet, deleteUserWallet, getAdapterForUser } from './keys'
+import { getKey, getMaskedKeysForUser, getUserKey, getUserKeySet, setUserKey, KEY_NAMES, listUserWallets, createUserWallet, activateUserWallet, deleteUserWallet, getAdapterForUser, updateWalletCredentials } from './keys'
 import { logAudit } from './audit'
 import { engineManager } from './engineManager'
 import type { KeyName } from './keys'
@@ -26,6 +27,7 @@ import axios from 'axios'
 import path from 'path'
 import fs from 'fs'
 import rateLimit from 'express-rate-limit'
+import mongoose from 'mongoose'
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -63,6 +65,18 @@ const currentUser = (req: express.Request) => (req as any).user?.username || 'un
 const currentUserId = (req: express.Request) => (req as any).user?.id || ''
 const isAdmin = (req: express.Request) => isAdminUser(req)
 
+/**
+ * Returns true if the request is allowed to scope queries to `walletId`.
+ * - No walletId given → true (no scope, no leak).
+ * - Admin user         → true (can see all wallets).
+ * - Otherwise          → verify the wallet belongs to the authenticated user.
+ */
+async function assertWalletOwnership(req: express.Request, walletId: string | undefined): Promise<boolean> {
+  if (!walletId) return true
+  if (isAdmin(req)) return true
+  return Boolean(await WalletModel.exists({ _id: walletId, userId: currentUserId(req) }))
+}
+
 async function userAlpacaBase(req: express.Request): Promise<string> {
   const userId = currentUserId(req)
   if (!userId) return getKey('alpaca_base_url') || 'https://paper-api.alpaca.markets'
@@ -87,10 +101,21 @@ export function createApiServer(): express.Application {
   const app = express()
   app.use(express.json())
 
-  // CORS for local dashboard dev
+  // CORS — origin allowlist driven by ALLOWED_ORIGINS env var.
+  // Default: http://localhost:5173 (Vite dev server).
+  // Production: set ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
+  const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+
   app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+    const origin = req.headers.origin
+    if (origin && ALLOWED_ORIGINS.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin)
+      res.setHeader('Vary', 'Origin')
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
     if (req.method === 'OPTIONS') return res.sendStatus(204)
     next()
@@ -141,13 +166,25 @@ export function createApiServer(): express.Application {
   app.get('/api/health', async (_req, res) => {
     let mongodb = false
     try {
-      const { connection } = await import('mongoose')
-      mongodb = connection.readyState === 1
-    } catch { /* ignore */ }
+      // Active probe: run a real ping command with a 2-second timeout. Use the
+      // statically imported mongoose to share the same module instance as logger.ts
+      // (dynamic import can yield a different instance under CJS/ESM interop).
+      const db = mongoose.connection.db
+      if (db) {
+        await Promise.race([
+          db.admin().command({ ping: 1 }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000)),
+        ])
+        mongodb = true
+      }
+    } catch { /* mongodb stays false — degraded */ }
 
-    const anthropicKeySet = Boolean(getKey('anthropic_api_key'))
-    const openaiKeySet    = Boolean(getKey('openai_api_key'))
-    const alpacaKeySet    = Boolean(getKey('alpaca_api_key') && getKey('alpaca_api_secret'))
+    let anthropicKeySet = false
+    let openaiKeySet = false
+    let alpacaKeySet = false
+    try { anthropicKeySet = Boolean(getKey('anthropic_api_key')) } catch { /* ignore */ }
+    try { openaiKeySet    = Boolean(getKey('openai_api_key')) } catch { /* ignore */ }
+    try { alpacaKeySet    = Boolean(getKey('alpaca_api_key') && getKey('alpaca_api_secret')) } catch { /* ignore */ }
 
     let lastCycleAt: string | null = null
     try {
@@ -165,15 +202,22 @@ export function createApiServer(): express.Application {
       const assets  = getConfig().assets
       const result: Record<string, { price: number; change24h: number }> = {}
 
+      const alpacaHeaders = {
+        'APCA-API-KEY-ID': getKey('alpaca_api_key') || '',
+        'APCA-API-SECRET-KEY': getKey('alpaca_api_secret') || '',
+      }
+      const alpacaBase = getKey('alpaca_base_url') || 'https://paper-api.alpaca.markets'
+      const equityFeed = alpacaBase.includes('paper') ? 'iex' : 'sip'
+
       for (const asset of assets) {
         try {
-          const response = await axios.get(`${ALPACA_DATA}/v1beta3/crypto/us/latest/bars`, {
-            headers: {
-              'APCA-API-KEY-ID': getKey('alpaca_api_key') || '',
-              'APCA-API-SECRET-KEY': getKey('alpaca_api_secret') || '',
-            },
-            params: { symbols: asset },
-          })
+          const isCrypto = asset.includes('/')
+          const url = isCrypto
+            ? `${ALPACA_DATA}/v1beta3/crypto/us/latest/bars`
+            : `${ALPACA_DATA}/v2/stocks/bars/latest`
+          const params: Record<string, string> = { symbols: asset }
+          if (!isCrypto) params.feed = equityFeed
+          const response = await axios.get(url, { headers: alpacaHeaders, params })
           const bar = response.data.bars?.[asset]
           if (bar) result[asset] = { price: bar.c, change24h: 0 }
         } catch { /* skip asset */ }
@@ -222,7 +266,7 @@ export function createApiServer(): express.Application {
 
   app.get('/api/admin/engines', async (req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Admin only' })
-    res.json({ engines: engineManager.list() })
+    res.json({ engines: await engineManager.list() })
   })
   app.get('/api/admin/users', async (req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Admin only' })
@@ -252,8 +296,7 @@ export function createApiServer(): express.Application {
     user.blockedReason = reason || undefined
     await user.save()
     await engineManager.ensureUser(userId)
-    engineManager.setBlocked(userId, true)
-    engineManager.pause(userId)
+    await engineManager.setBlocked(userId, true)
     await logAudit('admin.user.block', `${user.username} blocked${reason ? `: ${reason}` : ''}`, currentUser(req), req)
     res.json({ success: true })
   })
@@ -268,24 +311,34 @@ export function createApiServer(): express.Application {
     user.blockedReason = undefined
     await user.save()
     await engineManager.ensureUser(userId)
-    engineManager.setBlocked(userId, false)
+    await engineManager.setBlocked(userId, false)
     await logAudit('admin.user.unblock', `${user.username} unblocked`, currentUser(req), req)
     res.json({ success: true })
   })
+  // Admin pause/resume: operates on ALL wallets for the user to preserve existing admin UX.
+  // Individual per-wallet pause is handled by the user-facing /api/agent/pause endpoint.
   app.post('/api/admin/engines/:userId/pause', async (req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Admin only' })
     await engineManager.ensureUser(req.params.userId)
-    const ok = engineManager.pause(req.params.userId)
-    if (!ok) return res.status(404).json({ error: 'Engine not found' })
-    await logAudit('admin.engine.pause', req.params.userId, currentUser(req), req)
+    const wallets = await WalletModel.find({ userId: req.params.userId }, '_id').lean()
+    if (!wallets.length) return res.status(404).json({ error: 'No wallets found for user' })
+    const results = await Promise.all(
+      wallets.map((w: any) => engineManager.pauseWallet(req.params.userId, w._id.toString(), 'Paused by admin'))
+    )
+    if (!results.some(Boolean)) return res.status(404).json({ error: 'Engine not found' })
+    await logAudit('admin.engine.pause', `All wallets paused for ${req.params.userId}`, currentUser(req), req)
     res.json({ success: true })
   })
   app.post('/api/admin/engines/:userId/resume', async (req, res) => {
     if (!isAdmin(req)) return res.status(403).json({ error: 'Admin only' })
     await engineManager.ensureUser(req.params.userId)
-    const ok = engineManager.resume(req.params.userId)
-    if (!ok) return res.status(400).json({ error: 'Engine not found or blocked user' })
-    await logAudit('admin.engine.resume', req.params.userId, currentUser(req), req)
+    const wallets = await WalletModel.find({ userId: req.params.userId }, '_id').lean()
+    if (!wallets.length) return res.status(404).json({ error: 'No wallets found for user' })
+    const results = await Promise.all(
+      wallets.map((w: any) => engineManager.resumeWallet(req.params.userId, w._id.toString()))
+    )
+    if (!results.some(Boolean)) return res.status(400).json({ error: 'Engine not found or blocked user' })
+    await logAudit('admin.engine.resume', `All wallets resumed for ${req.params.userId}`, currentUser(req), req)
     res.json({ success: true })
   })
   app.post('/api/admin/engines/:userId/trigger', async (req, res) => {
@@ -309,24 +362,44 @@ export function createApiServer(): express.Application {
     return changePasswordHandler(req, res)
   })
 
-  // GET /api/agent/status
-  app.get('/api/agent/status', requireAuth, (req, res) => {
-    const status = engineManager.get(currentUserId(req))
-    res.json({ paused: status?.paused ?? false, blocked: status?.blocked ?? false })
+  // GET /api/agent/status — returns per-wallet pause state
+  app.get('/api/agent/status', requireAuth, async (req, res) => {
+    const userId = currentUserId(req)
+    const wallets = await WalletModel.find({ userId }, '_id paused pausedAt pausedReason').lean()
+    const walletStatuses = wallets.map((w: any) => ({
+      walletId: w._id.toString(),
+      paused: Boolean(w.paused),
+      pausedAt: w.pausedAt ?? null,
+      pausedReason: w.pausedReason ?? null,
+    }))
+    const status = await engineManager.get(userId)
+    res.json({ wallets: walletStatuses, blocked: status?.blocked ?? false })
   })
 
-  // POST /api/agent/pause
-  app.post('/api/agent/pause', requireAuth, (req, res) => {
-    engineManager.pause(currentUserId(req))
-    logAudit('agent.pause', 'Agent paused', currentUser(req), req).catch(() => {})
-    res.json({ paused: true })
+  // POST /api/agent/pause — requires { walletId, reason? }
+  app.post('/api/agent/pause', requireAuth, async (req, res) => {
+    const userId = currentUserId(req)
+    const { walletId, reason } = req.body
+    if (!walletId || typeof walletId !== 'string') {
+      return res.status(400).json({ error: 'walletId required' })
+    }
+    const ok = await engineManager.pauseWallet(userId, walletId, reason)
+    if (!ok) return res.status(404).json({ error: 'Wallet not found or not owned by user' })
+    await logAudit('agent.pause', `Wallet ${walletId} paused${reason ? `: ${reason}` : ''}`, currentUser(req), req)
+    res.json({ paused: true, walletId })
   })
 
-  // POST /api/agent/resume
-  app.post('/api/agent/resume', requireAuth, (req, res) => {
-    engineManager.resume(currentUserId(req))
-    logAudit('agent.resume', 'Agent resumed', currentUser(req), req).catch(() => {})
-    res.json({ paused: false })
+  // POST /api/agent/resume — requires { walletId }
+  app.post('/api/agent/resume', requireAuth, async (req, res) => {
+    const userId = currentUserId(req)
+    const { walletId } = req.body
+    if (!walletId || typeof walletId !== 'string') {
+      return res.status(400).json({ error: 'walletId required' })
+    }
+    const ok = await engineManager.resumeWallet(userId, walletId)
+    if (!ok) return res.status(400).json({ error: 'Wallet not found, not owned by user, or user is blocked' })
+    await logAudit('agent.resume', `Wallet ${walletId} resumed`, currentUser(req), req)
+    res.json({ paused: false, walletId })
   })
 
   // GET /api/positions — live positions from Alpaca
@@ -376,14 +449,47 @@ export function createApiServer(): express.Application {
       const { name, exchange, mode,
               alpaca_api_key, alpaca_api_secret, alpaca_base_url,
               binance_api_key, binance_api_secret,
-              coinbase_api_key, coinbase_api_secret } = req.body
+              coinbase_api_key, coinbase_api_secret,
+              ibkr_gateway_url, ibkr_session_token,
+              bitpanda_api_key, bitpanda_api_secret } = req.body
       const wallet = await createUserWallet(currentUserId(req), {
         name, exchange, mode,
         alpaca_api_key, alpaca_api_secret, alpaca_base_url,
         binance_api_key, binance_api_secret,
         coinbase_api_key, coinbase_api_secret,
+        ibkr_gateway_url, ibkr_session_token,
+        bitpanda_api_key, bitpanda_api_secret,
       })
+      await logAudit('wallet.create', `Wallet "${name}" created (exchange: ${exchange ?? 'alpaca'})`, currentUser(req), req)
       res.json(wallet)
+    } catch (err: any) {
+      res.status(400).json({ error: err.message })
+    }
+  })
+
+  // POST /api/wallets/:walletId/credentials - rotate credentials without recreating the wallet
+  app.post('/api/wallets/:walletId/credentials', requireAuth, async (req, res) => {
+    try {
+      const { walletId } = req.params
+      const userId = currentUserId(req)
+      const {
+        alpaca_api_key, alpaca_api_secret, alpaca_base_url,
+        binance_api_key, binance_api_secret,
+        coinbase_api_key, coinbase_api_secret,
+        ibkr_gateway_url, ibkr_session_token,
+        bitpanda_api_key, bitpanda_api_secret,
+      } = req.body
+
+      const updated = await updateWalletCredentials(userId, walletId, {
+        alpaca_api_key, alpaca_api_secret, alpaca_base_url,
+        binance_api_key, binance_api_secret,
+        coinbase_api_key, coinbase_api_secret,
+        ibkr_gateway_url, ibkr_session_token,
+        bitpanda_api_key, bitpanda_api_secret,
+      })
+      if (!updated) return res.status(404).json({ error: 'Wallet not found or not owned by you' })
+      await logAudit('wallet.credentials.update', `Credentials rotated for wallet ${walletId}`, currentUser(req), req)
+      res.json(updated)
     } catch (err: any) {
       res.status(400).json({ error: err.message })
     }
@@ -391,9 +497,12 @@ export function createApiServer(): express.Application {
 
   // POST /api/wallets/:walletId/activate - switch active wallet
   app.post('/api/wallets/:walletId/activate', async (req, res) => {
-    const ok = await activateUserWallet(currentUserId(req), req.params.walletId)
+    const userId = currentUserId(req)
+    const ok = await activateUserWallet(userId, req.params.walletId)
     if (!ok) return res.status(404).json({ error: 'Wallet not found' })
     await logAudit('wallet.activate', req.params.walletId, currentUser(req), req)
+    // Bust portfolio cache and notify dashboard immediately
+    engineManager.notifyWalletSwitch(userId, req.params.walletId)
     res.json({ success: true })
   })
 
@@ -415,12 +524,11 @@ export function createApiServer(): express.Application {
     if (mode === 'live') {
       const user = await UserModel.findById(userId).lean()
       if (!user) return res.status(401).json({ error: 'User not found' })
-      if (user.twoFactorEnabled) {
-        if (!token) return res.status(403).json({ error: '2FA token required to enable live trading' })
-        const { verifyTOTP } = await import('./auth')
-        const valid = verifyTOTP(user.twoFactorSecret!, token)
-        if (!valid) return res.status(403).json({ error: 'Invalid 2FA token' })
-      }
+      if (!user.twoFactorEnabled) return res.status(403).json({ error: 'Enable 2FA in your profile before switching to live mode' })
+      if (!token) return res.status(403).json({ error: '2FA token required to enable live trading' })
+      const { verifyTOTP } = await import('./auth')
+      const valid = verifyTOTP(user.twoFactorSecret!, token)
+      if (!valid) return res.status(403).json({ error: 'Invalid 2FA token' })
     }
     const wallet = await WalletModel.findOne({ _id: req.params.id, userId })
     if (!wallet) return res.status(404).json({ error: 'Wallet not found' })
@@ -428,6 +536,44 @@ export function createApiServer(): express.Application {
     await wallet.save()
     await logAudit(`wallet.mode.${mode}`, `Wallet "${wallet.name}" switched to ${mode} mode`, currentUser(req), req)
     res.json({ id: wallet._id.toString(), mode })
+  })
+
+  // GET /api/wallets/:walletId/live-trading-status — read current liveTrading gate value
+  app.get('/api/wallets/:walletId/live-trading-status', requireAuth, async (req, res) => {
+    const userId = currentUserId(req)
+    const wallet = await WalletModel.findOne({ _id: req.params.walletId, userId })
+    if (!wallet) return res.status(404).json({ error: 'Wallet not found' })
+    res.json({ id: wallet._id.toString(), liveTrading: Boolean((wallet as any).liveTrading) })
+  })
+
+  // POST /api/wallets/:walletId/live-trading — flip the liveTrading hard gate (requires 2FA when enabling)
+  app.post('/api/wallets/:walletId/live-trading', requireAuth, async (req, res) => {
+    const userId = currentUserId(req)
+    const { enabled, token } = req.body as { enabled: boolean; token?: string }
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled (boolean) is required' })
+    }
+    // Enabling the live-trading gate requires 2FA enrollment and a valid TOTP token
+    if (enabled) {
+      const user = await UserModel.findById(userId).lean()
+      if (!user) return res.status(401).json({ error: 'User not found' })
+      if (!user.twoFactorEnabled) return res.status(403).json({ error: 'Enable 2FA in your profile before switching to live mode' })
+      if (!token) return res.status(403).json({ error: '2FA token required to enable live-trading gate' })
+      const { verifyTOTP } = await import('./auth')
+      const valid = verifyTOTP(user.twoFactorSecret!, token)
+      if (!valid) return res.status(403).json({ error: 'Invalid 2FA token' })
+    }
+    const wallet = await WalletModel.findOne({ _id: req.params.walletId, userId })
+    if (!wallet) return res.status(404).json({ error: 'Wallet not found' })
+    ;(wallet as any).liveTrading = enabled
+    await wallet.save()
+    await logAudit(
+      `wallet.liveTrading.${enabled ? 'enabled' : 'disabled'}`,
+      `Wallet "${wallet.name}" live-trading gate ${enabled ? 'ENABLED' : 'DISABLED'}`,
+      currentUser(req),
+      req,
+    )
+    res.json({ id: wallet._id.toString(), liveTrading: enabled })
   })
 
   // POST /api/keys - set a single key
@@ -483,11 +629,37 @@ export function createApiServer(): express.Application {
     }
   })
 
+  /** Enrich a lean trade object with net P&L, fees, and tax computed on-the-fly. */
+  async function enrichTradeWithCostBreakdown(trade: any): Promise<any> {
+    if (!trade.outcome?.pnl_usd || !trade.outcome?.pnl_pct) return trade
+    const wId = trade.walletId as string | undefined
+    const wallet = wId ? await WalletModel.findById(wId).lean() : null
+    if (!wallet) return trade
+    const feeModel: FeeModel = {
+      kind: (wallet.feeModel?.kind ?? 'percent') as 'percent' | 'flat',
+      value: wallet.feeModel?.value ?? 0,
+      minFee: wallet.feeModel?.minFee ?? 0,
+    }
+    const taxRatePct = wallet.taxRatePct ?? 26
+    const entryNotional = trade.decision.amount_usd
+    const pnl_usd = trade.outcome.pnl_usd
+    const exitNotional = entryNotional + pnl_usd
+    const { grossPnl, fees, tax, netPnl } = computeNetPnL({ entryNotional, exitNotional, feeModel, taxRatePct })
+    return {
+      ...trade,
+      net_pnl_usd: parseFloat(netPnl.toFixed(2)),
+      fees_usd: parseFloat(fees.toFixed(2)),
+      tax_usd: parseFloat(tax.toFixed(2)),
+      gross_pnl_usd: parseFloat(grossPnl.toFixed(2)),
+    }
+  }
+
   // GET /api/trades?limit=50&page=1
   app.get('/api/trades', async (req, res) => {
     const limit = parseInt(req.query.limit as string) || 50
     const page = parseInt(req.query.page as string) || 1
     const walletId = req.query.walletId as string | undefined
+    if (!await assertWalletOwnership(req, walletId)) return res.status(403).json({ error: 'Forbidden' })
     const scope: Record<string, any> = isAdmin(req) ? {} : { userId: currentUserId(req) }
     if (walletId) scope.walletId = walletId
     const trades = await TradeModel.find(scope)
@@ -496,7 +668,8 @@ export function createApiServer(): express.Application {
       .limit(limit)
       .lean()
     const total = await TradeModel.countDocuments(scope)
-    res.json({ trades, total, page, limit })
+    const enriched = await Promise.all(trades.map(t => enrichTradeWithCostBreakdown(t)))
+    res.json({ trades: enriched, total, page, limit })
   })
 
   // GET /api/trades/pending - unapproved non-hold decisions
@@ -512,6 +685,7 @@ export function createApiServer(): express.Application {
   // GET /api/stats - summary for dashboard
   app.get('/api/stats', async (req, res) => {
     const walletId = req.query.walletId as string | undefined
+    if (!await assertWalletOwnership(req, walletId)) return res.status(403).json({ error: 'Forbidden' })
     const scope: Record<string, any> = isAdmin(req) ? {} : { userId: currentUserId(req) }
     if (walletId) scope.walletId = walletId
     const [total, executed, profitable, datasetSize] = await Promise.all([
@@ -730,9 +904,19 @@ export function createApiServer(): express.Application {
     const timeframe = (req.query.timeframe as string) || '1H'
     const limit = Math.min(parseInt(req.query.limit as string) || 100, 500)
     try {
-      const response = await axios.get(`${ALPACA_DATA}/v1beta3/crypto/us/bars`, {
+      const isCrypto = asset.includes('/')
+      const alpacaBase = await userAlpacaBase(req)
+      const equityFeed = alpacaBase.includes('paper') ? 'iex' : 'sip'
+
+      const url = isCrypto
+        ? `${ALPACA_DATA}/v1beta3/crypto/us/bars`
+        : `${ALPACA_DATA}/v2/stocks/bars`
+      const params: Record<string, string | number> = { symbols: asset, timeframe, limit }
+      if (!isCrypto) params.feed = equityFeed
+
+      const response = await axios.get(url, {
         headers: await userAlpacaHeaders(req),
-        params: { symbols: asset, timeframe, limit },
+        params,
       })
       res.json(response.data.bars[asset] || [])
     } catch (err: any) {
@@ -757,6 +941,7 @@ export function createApiServer(): express.Application {
   app.get('/api/equity/history', async (req, res) => {
     const limit = parseInt(req.query.limit as string) || 200
     const walletId = req.query.walletId as string | undefined
+    if (!await assertWalletOwnership(req, walletId)) return res.status(403).json({ error: 'Forbidden' })
     const scope: Record<string, any> = isAdmin(req) ? {} : { userId: currentUserId(req) }
     if (walletId) scope.walletId = walletId
     const history = await EquityModel.find(scope).sort({ ts: -1 }).limit(limit).lean()
@@ -791,6 +976,7 @@ export function createApiServer(): express.Application {
   // GET /api/stats/per-asset - P&L breakdown by asset
   app.get('/api/stats/per-asset', async (req, res) => {
     const walletId = req.query.walletId as string | undefined
+    if (!await assertWalletOwnership(req, walletId)) return res.status(403).json({ error: 'Forbidden' })
     const scope: Record<string, any> = isAdmin(req) ? {} : { userId: currentUserId(req) }
     if (walletId) scope.walletId = walletId
     const perAsset = await TradeModel.aggregate([
@@ -815,6 +1001,7 @@ export function createApiServer(): express.Application {
   app.get('/api/stats/per-period', requireAuth, async (req, res) => {
     const period = (req.query.period as string) || 'daily'
     const walletId = req.query.walletId as string | undefined
+    if (!await assertWalletOwnership(req, walletId)) return res.status(403).json({ error: 'Forbidden' })
     const scope: Record<string, any> = isAdmin(req) ? {} : { userId: currentUserId(req) }
     if (walletId) scope.walletId = walletId
 
@@ -890,6 +1077,7 @@ export function createApiServer(): express.Application {
   // GET /api/tokens/stats - aggregate token usage and cost
   app.get('/api/tokens/stats', async (req, res) => {
     const walletId = req.query.walletId as string | undefined
+    if (!await assertWalletOwnership(req, walletId)) return res.status(403).json({ error: 'Forbidden' })
     const scope: Record<string, any> = isAdmin(req) ? {} : { userId: currentUserId(req) }
     if (walletId) scope.walletId = walletId
     const [totals, byModel, daily] = await Promise.all([
@@ -956,6 +1144,7 @@ export function createApiServer(): express.Application {
   app.get('/api/tokens/history', async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit as string) || 200, 1000)
     const walletId = req.query.walletId as string | undefined
+    if (!await assertWalletOwnership(req, walletId)) return res.status(403).json({ error: 'Forbidden' })
     const scope: Record<string, any> = isAdmin(req) ? {} : { userId: currentUserId(req) }
     if (walletId) scope.walletId = walletId
     const rows = await TokenUsageModel.find(scope)
@@ -1129,7 +1318,8 @@ export function createApiServer(): express.Application {
       TradeModel.countDocuments(filter),
     ])
 
-    res.json({ trades, total, page, limit })
+    const enriched = await Promise.all(trades.map(t => enrichTradeWithCostBreakdown(t)))
+    res.json({ trades: enriched, total, page, limit })
   })
 
   // GET /api/strategies
@@ -1232,6 +1422,215 @@ export function createApiServer(): express.Application {
     if (req.query.strategyId) filter.strategyId = req.query.strategyId
     const results = await OptimizeResultModel.find(filter).sort({ runAt: -1 }).limit(20).lean()
     res.json(results)
+  })
+
+  // ── Per-wallet trading config endpoints ──────────────────────────────────────
+
+  // GET /api/wallets/:walletId/trading-config
+  app.get('/api/wallets/:walletId/trading-config', requireAuth, async (req, res) => {
+    try {
+      const { walletId } = req.params
+      const userId = currentUserId(req)
+      const wallet = await WalletModel.findOne({ _id: walletId, userId }).lean()
+      if (!wallet) return res.status(404).json({ error: 'Wallet not found' })
+
+      const effective = await getEffectiveConfigForWallet(userId, walletId)
+      const modeDefaults = tradingModeDefaults[wallet.tradingMode as keyof typeof tradingModeDefaults] || tradingModeDefaults.swing
+
+      res.json({
+        tradingMode: wallet.tradingMode,
+        cycleMinutes: wallet.cycleMinutes,
+        assets: wallet.assets,
+        maxTradesPerDay: wallet.maxTradesPerDay,
+        minHoldingMinutes: wallet.minHoldingMinutes,
+        effective: {
+          tradingMode: effective.tradingMode,
+          cycleMinutes: effective.cycleMinutes,
+          assets: effective.assets,
+          maxTradesPerDay: effective.maxTradesPerDay,
+          minHoldingMinutes: effective.minHoldingMinutes,
+          stopLossPct: effective.stopLossPct,
+          takeProfitPct: effective.takeProfitPct,
+          maxOpenPositions: effective.maxOpenPositions,
+          promptHint: modeDefaults.promptHint,
+        },
+      })
+    } catch (err: any) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  // POST /api/wallets/:walletId/trading-config
+  app.post('/api/wallets/:walletId/trading-config', requireAuth, async (req, res) => {
+    try {
+      const { walletId } = req.params
+      const userId = currentUserId(req)
+      const wallet = await WalletModel.findOne({ _id: walletId, userId })
+      if (!wallet) return res.status(404).json({ error: 'Wallet not found' })
+
+      const { tradingMode, cycleMinutes, assets, maxTradesPerDay, minHoldingMinutes } = req.body
+      const validModes = ['scalp', 'swing', 'long_term']
+
+      const oldMode = wallet.tradingMode
+
+      if (tradingMode !== undefined) {
+        if (!validModes.includes(tradingMode)) return res.status(400).json({ error: `tradingMode must be one of: ${validModes.join(', ')}` })
+        wallet.tradingMode = tradingMode
+      }
+      if (typeof cycleMinutes === 'number') wallet.cycleMinutes = cycleMinutes
+      if (Array.isArray(assets)) wallet.assets = assets
+      if (typeof maxTradesPerDay === 'number') wallet.maxTradesPerDay = maxTradesPerDay
+      if (typeof minHoldingMinutes === 'number') wallet.minHoldingMinutes = minHoldingMinutes
+
+      await wallet.save()
+      await logAudit('wallet.tradingConfig', `Wallet ${walletId} trading config updated: ${JSON.stringify(req.body)}`, currentUser(req), req)
+
+      // If tradingMode changed, bust engine cache and reschedule
+      if (tradingMode !== undefined && tradingMode !== oldMode) {
+        engineManager.notifyWalletSwitch(userId, walletId)
+      }
+
+      res.json({ success: true, wallet: { tradingMode: wallet.tradingMode, cycleMinutes: wallet.cycleMinutes, assets: wallet.assets, maxTradesPerDay: wallet.maxTradesPerDay, minHoldingMinutes: wallet.minHoldingMinutes } })
+    } catch (err: any) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  // GET /api/wallets/:walletId/discovery?limit=20
+  app.get('/api/wallets/:walletId/discovery', requireAuth, async (req, res) => {
+    try {
+      const { walletId } = req.params
+      const userId = currentUserId(req)
+      const wallet = await WalletModel.findOne({ _id: walletId, userId }).lean()
+      if (!wallet) return res.status(404).json({ error: 'Wallet not found' })
+
+      const limit = Math.min(parseInt(req.query.limit as string) || 20, 100)
+      const runs = await DiscoveryRunModel.find({ userId, walletId }).sort({ ts: -1 }).limit(limit).lean()
+      res.json({ runs })
+    } catch (err: any) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  // ── Cost config endpoints ─────────────────────────────────────────────────────
+
+  // GET /api/wallets/:walletId/cost-config
+  app.get('/api/wallets/:walletId/cost-config', requireAuth, async (req, res) => {
+    try {
+      const { walletId } = req.params
+      const userId = currentUserId(req)
+      const wallet = await WalletModel.findOne({ _id: walletId, userId }).lean()
+      if (!wallet) return res.status(404).json({ error: 'Wallet not found' })
+      res.json({
+        feeModel: wallet.feeModel ?? { kind: 'percent', value: 0, minFee: 0 },
+        taxRatePct: wallet.taxRatePct ?? 26,
+        minNetProfitPct: wallet.minNetProfitPct ?? 0.5,
+      })
+    } catch (err: any) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  // POST /api/wallets/:walletId/cost-config
+  // Body: { feeModel?: { kind, value, minFee }, taxRatePct?: number, minNetProfitPct?: number }
+  app.post('/api/wallets/:walletId/cost-config', requireAuth, async (req, res) => {
+    try {
+      const { walletId } = req.params
+      const userId = currentUserId(req)
+      const wallet = await WalletModel.findOne({ _id: walletId, userId })
+      if (!wallet) return res.status(404).json({ error: 'Wallet not found' })
+
+      const { feeModel, taxRatePct, minNetProfitPct } = req.body
+
+      // Validate and apply feeModel
+      if (feeModel !== undefined) {
+        if (!feeModel || !['percent', 'flat'].includes(feeModel.kind)) {
+          return res.status(400).json({ error: 'feeModel.kind must be "percent" or "flat"' })
+        }
+        if (typeof feeModel.value !== 'number' || feeModel.value < 0) {
+          return res.status(400).json({ error: 'feeModel.value must be a non-negative number' })
+        }
+        const minF = typeof feeModel.minFee === 'number' ? feeModel.minFee : 0
+        wallet.feeModel = { kind: feeModel.kind, value: feeModel.value, minFee: minF }
+      }
+
+      if (taxRatePct !== undefined) {
+        if (typeof taxRatePct !== 'number' || taxRatePct < 0 || taxRatePct > 100) {
+          return res.status(400).json({ error: 'taxRatePct must be a number between 0 and 100' })
+        }
+        wallet.taxRatePct = taxRatePct
+      }
+
+      if (minNetProfitPct !== undefined) {
+        if (typeof minNetProfitPct !== 'number' || minNetProfitPct < 0) {
+          return res.status(400).json({ error: 'minNetProfitPct must be a non-negative number' })
+        }
+        wallet.minNetProfitPct = minNetProfitPct
+      }
+
+      await wallet.save()
+      await logAudit('wallet.costConfig', `Wallet ${walletId} cost config updated: ${JSON.stringify(req.body)}`, currentUser(req), req)
+
+      res.json({
+        success: true,
+        feeModel: wallet.feeModel,
+        taxRatePct: wallet.taxRatePct,
+        minNetProfitPct: wallet.minNetProfitPct,
+      })
+    } catch (err: any) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  // POST /api/wallets/:walletId/discovery/run
+  app.post('/api/wallets/:walletId/discovery/run', requireAuth, async (req, res) => {
+    try {
+      const { walletId } = req.params
+      const userId = currentUserId(req)
+      const wallet = await WalletModel.findOne({ _id: walletId, userId }).lean()
+      if (!wallet) return res.status(404).json({ error: 'Wallet not found' })
+
+      const doc = await engineManager.triggerDiscovery(userId, walletId)
+      if (!doc) return res.status(500).json({ error: 'Discovery run failed' })
+      await logAudit('discovery.run', `Manual discovery triggered for wallet ${walletId}`, currentUser(req), req)
+      res.json({ run: doc })
+    } catch (err: any) {
+      res.status(500).json({ error: err.message })
+    }
+  })
+
+  // POST /api/wallets/:walletId/cycle — user-scoped manual cycle trigger
+  // Preconditions: auth, wallet ownership, wallet not paused, wallet must be active (engine runs on active wallet).
+  app.post('/api/wallets/:walletId/cycle', requireAuth, async (req, res) => {
+    try {
+      const { walletId } = req.params
+      const userId = currentUserId(req)
+
+      // Ownership check
+      const owned = await assertWalletOwnership(req, walletId)
+      if (!owned) return res.status(403).json({ error: 'Forbidden: wallet does not belong to you' })
+
+      // Fetch wallet to check paused and active state
+      const wallet = await WalletModel.findOne({ _id: walletId, userId }).lean()
+      if (!wallet) return res.status(404).json({ error: 'Wallet not found' })
+
+      if (wallet.paused) {
+        return res.status(409).json({ error: 'Wallet is paused — resume it before triggering a cycle' })
+      }
+
+      if (!wallet.active) {
+        return res.status(400).json({ error: 'Activate this wallet first, then trigger a cycle.' })
+      }
+
+      await engineManager.ensureUser(userId)
+      const ok = await engineManager.triggerCycle(userId)
+      if (!ok) return res.status(500).json({ error: 'Engine not available — try again in a moment' })
+
+      await logAudit('wallet.cycle.manual_trigger', `Manual cycle triggered for wallet ${walletId}`, currentUser(req), req)
+      res.json({ success: true, message: 'Cycle triggered — check the decision log in a few seconds.' })
+    } catch (err: any) {
+      res.status(500).json({ error: err.message })
+    }
   })
 
   return app

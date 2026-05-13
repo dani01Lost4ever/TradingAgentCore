@@ -16,8 +16,9 @@ import { auth, api } from './api'
 import type { AuthUser } from './api'
 import { AdminEngines } from './pages/AdminEngines'
 import { Profile } from './pages/Profile'
+import { Discovery } from './pages/Discovery'
 
-export type Page = 'overview' | 'charts' | 'assets' | 'tokens' | 'settings' | 'strategies' | 'backtest' | 'reasoning' | 'auditlog' | 'wiki' | 'admin' | 'profile'
+export type Page = 'overview' | 'charts' | 'assets' | 'tokens' | 'settings' | 'strategies' | 'backtest' | 'reasoning' | 'auditlog' | 'wiki' | 'admin' | 'profile' | 'discovery'
 type PublicPage = 'landing' | 'login'
 
 export function App() {
@@ -74,6 +75,7 @@ export function App() {
         {page === 'wiki'      && <Wiki />}
         {page === 'admin'     && me?.role === 'admin' && <AdminEngines />}
         {page === 'profile'   && <Profile me={me} />}
+        {page === 'discovery' && <Discovery />}
       </main>
     </div>
   )

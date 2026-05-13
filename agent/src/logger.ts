@@ -1,9 +1,29 @@
 import mongoose from 'mongoose'
-import { TradeModel, TradeRecord } from './schema'
+import { TradeModel, TradeRecord, WalletModel } from './schema'
 import { Decision } from './brain'
 import { Portfolio, fetchMarketSnapshot } from './poller'
 import { AssetSnapshot } from './schema'
 import type { AlpacaCredentials } from './executor'
+import { computeNetPnL, type FeeModel } from './costs'
+
+async function resolveWalletCostConfig(walletId?: string): Promise<{ feeModel: FeeModel; taxRatePct: number }> {
+  const DEFAULT: FeeModel = { kind: 'percent', value: 0, minFee: 0 }
+  if (!walletId) return { feeModel: DEFAULT, taxRatePct: 0 }
+  try {
+    const wallet = await WalletModel.findById(walletId).lean()
+    if (!wallet) return { feeModel: DEFAULT, taxRatePct: 0 }
+    return {
+      feeModel: {
+        kind: (wallet.feeModel?.kind ?? 'percent') as 'percent' | 'flat',
+        value: wallet.feeModel?.value ?? 0,
+        minFee: wallet.feeModel?.minFee ?? 0,
+      },
+      taxRatePct: wallet.taxRatePct ?? 26,
+    }
+  } catch {
+    return { feeModel: DEFAULT, taxRatePct: 0 }
+  }
+}
 
 const MANUAL_PENDING_SCOPE = {
   approved: false,
@@ -139,12 +159,25 @@ export async function resolveOutcomes(userId = '__global__', creds?: AlpacaCrede
       ((pnl_pct / 100) * record.decision.amount_usd).toFixed(2)
     )
 
+    // Compute net P&L (after fees + tax) using the wallet's cost config.
+    // Net P&L drives the `correct` flag — a "win" that loses to fees+tax is not a win.
+    const { feeModel, taxRatePct } = await resolveWalletCostConfig(record.walletId)
+    const entryNotional = record.decision.amount_usd
+    const exitNotional  = entryNotional + pnl_usd
+
+    let netPnl = pnl_usd
+    if (record.decision.action === 'buy' || record.decision.action === 'sell') {
+      const breakdown = computeNetPnL({ entryNotional, exitNotional, feeModel, taxRatePct })
+      netPnl = breakdown.netPnl
+    }
+
     // For a buy, profit = price went up. For sell, profit = price went down.
+    // `correct` is determined by NET P&L — fees+tax matter for whether it was truly profitable.
     const correct =
       record.decision.action === 'buy'
-        ? pnl_pct > 0
+        ? netPnl > 0
         : record.decision.action === 'sell'
-        ? pnl_pct < 0
+        ? netPnl > 0   // for sells, a positive net means the short paid off
         : true // hold is always "correct" for labelling purposes
 
     await TradeModel.findByIdAndUpdate(record._id, {
@@ -158,7 +191,7 @@ export async function resolveOutcomes(userId = '__global__', creds?: AlpacaCrede
     })
 
     console.log(
-      `[logger] Resolved ${record._id}: ${record.decision.action} ${record.decision.asset} → ${pnl_pct}% (${correct ? '✓' : '✗'})`
+      `[logger] Resolved ${record._id}: ${record.decision.action} ${record.decision.asset} → gross ${pnl_pct}% net $${netPnl.toFixed(2)} (${correct ? '✓' : '✗'})`
     )
   }
 }

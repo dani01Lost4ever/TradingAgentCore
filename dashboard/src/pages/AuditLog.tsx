@@ -3,8 +3,8 @@ import { api } from '../api'
 import type { AuditEvent } from '../api'
 
 const card: React.CSSProperties = {
-  background: 'var(--card)', border: '1px solid var(--border)',
-  borderRadius: 10, padding: '20px 24px',
+  background: 'var(--bg2)', border: '1px solid var(--border)',
+  padding: '0',
 }
 
 const ACTION_COLORS: Record<string, string> = {
@@ -59,17 +59,17 @@ export function AuditLog() {
 
   return (
     <div style={{ padding: '32px 40px', maxWidth: 1200, margin: '0 auto' }}>
-      <h2 style={{ margin: '0 0 28px', fontFamily: 'var(--font-mono)', fontSize: 16, letterSpacing: '0.08em', color: 'var(--text)' }}>
+      <h2 style={{ margin: '0 0 28px', fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 700, letterSpacing: '0.08em', color: 'var(--accent)' }}>
         AUDIT LOG
       </h2>
 
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center' }}>
         <input
           style={{
-            padding: '7px 12px', background: 'var(--input-bg)',
-            border: '1px solid var(--border)', borderRadius: 6,
+            padding: '7px 12px', background: 'var(--bg3)',
+            border: '1px solid var(--border2)', borderRadius: 0,
             color: 'var(--text)', fontSize: 12, fontFamily: 'var(--font-mono)',
-            width: 240,
+            width: 240, outline: 'none',
           }}
           placeholder="Search action / user / details…"
           value={search}
@@ -77,9 +77,10 @@ export function AuditLog() {
         />
         <select
           style={{
-            padding: '7px 12px', background: 'var(--input-bg)',
-            border: '1px solid var(--border)', borderRadius: 6,
+            padding: '7px 12px', background: 'var(--bg3)',
+            border: '1px solid var(--border2)', borderRadius: 0,
             color: 'var(--text)', fontSize: 12, fontFamily: 'var(--font-mono)',
+            outline: 'none',
           }}
           value={limit}
           onChange={e => setLimit(Number(e.target.value))}
@@ -92,9 +93,9 @@ export function AuditLog() {
         <button
           onClick={load}
           style={{
-            padding: '7px 16px', borderRadius: 6, fontSize: 11,
-            fontFamily: 'var(--font-mono)', border: '1px solid var(--border)',
-            background: 'var(--card)', color: 'var(--text)', cursor: 'pointer',
+            padding: '7px 16px', borderRadius: 0, fontSize: 11,
+            fontFamily: 'var(--font-mono)', border: '1px solid var(--border2)',
+            background: 'transparent', color: 'var(--text)', cursor: 'pointer',
           }}
         >
           ↻ Refresh
@@ -111,35 +112,35 @@ export function AuditLog() {
           <div style={{ color: 'var(--muted)', fontSize: 12, fontFamily: 'var(--font-mono)', padding: 16 }}>No events found.</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+            <table className="aurora-table" style={{ padding: '0 4px' }}>
               <thead>
-                <tr style={{ color: 'var(--muted)' }}>
+                <tr>
                   {['Timestamp', 'User', 'Action', 'Details', 'IP'].map(h => (
-                    <th key={h} style={{ textAlign: 'left', padding: '6px 12px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
+                    <th key={h} style={{ whiteSpace: 'nowrap', textAlign: 'left' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.map(e => (
-                  <tr key={e._id} style={{ borderBottom: '1px solid var(--border2)' }}>
-                    <td style={{ padding: '7px 12px', whiteSpace: 'nowrap', color: 'var(--muted)' }}>
+                  <tr key={e._id}>
+                    <td style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>
                       {new Date(e.ts).toLocaleString()}
                     </td>
-                    <td style={{ padding: '7px 12px', color: 'var(--text)' }}>{e.user}</td>
-                    <td style={{ padding: '7px 12px' }}>
+                    <td>{e.user}</td>
+                    <td>
                       <span style={{
                         color: actionColor(e.action),
                         background: `${actionColor(e.action)}18`,
-                        padding: '2px 8px', borderRadius: 4,
-                        fontWeight: 600, letterSpacing: '0.04em',
+                        padding: '2px 8px',
+                        fontWeight: 600, letterSpacing: '0.04em', fontSize: 10,
                       }}>
                         {e.action}
                       </span>
                     </td>
-                    <td style={{ padding: '7px 12px', color: 'var(--muted)', maxWidth: 400, wordBreak: 'break-word' }}>
+                    <td style={{ color: 'var(--muted)', maxWidth: 400, wordBreak: 'break-word', whiteSpace: 'normal', fontFamily: 'var(--font-sans)', fontSize: '0.72rem' }}>
                       {e.details || '—'}
                     </td>
-                    <td style={{ padding: '7px 12px', color: 'var(--muted)' }}>
+                    <td style={{ color: 'var(--muted)' }}>
                       {e.ip || '—'}
                     </td>
                   </tr>

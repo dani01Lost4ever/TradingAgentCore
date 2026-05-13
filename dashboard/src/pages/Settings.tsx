@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { applyTheme, getTheme } from '../theme'
 import type { Theme } from '../theme'
 import { ThemePicker } from '../components/ThemePicker'
 import { api } from '../api'
-import type { KeyName, MaskedKeys, AuthUser } from '../api'
+import type { KeyName, MaskedKeys, AuthUser, WalletTradingConfig, WalletInfo, TradingMode } from '../api'
 
 // ── Prompt editor state type ─────────────────────────────────────────────────
 // (defined at module level so it can be referenced from component)
@@ -160,7 +160,7 @@ function KeyRow({ name, masked, onSave }: { name: KeyName; masked: string; onSav
   }
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)', fontVariantNumeric: 'tabular-nums' }}>
       <div style={{ minWidth: 170, fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>
         {KEY_LABELS[name]}
       </div>
@@ -205,6 +205,563 @@ function KeyRow({ name, masked, onSave }: { name: KeyName; masked: string; onSav
         </>
       )}
     </div>
+  )
+}
+
+// ── Per-Wallet Trading Section ────────────────────────────────────────────────
+const MODE_OPTIONS: { value: TradingMode; label: string; desc: string }[] = [
+  { value: 'scalp',     label: 'SCALP',     desc: 'High-freq crypto, 15-min cycles' },
+  { value: 'swing',     label: 'SWING',     desc: 'Multi-hour holds, 2-hour cycles' },
+  { value: 'long_term', label: 'LONG TERM', desc: 'ETF/blue-chip, 12-hour cycles' },
+]
+
+// ── Live-Trading Gate Section (per-wallet) ────────────────────────────────────
+function LiveTradingGateSection() {
+  const [wallets, setWallets] = useState<WalletInfo[]>([])
+  const [selectedWalletId, setSelectedWalletId] = useState<string>('')
+  const [liveTradingEnabled, setLiveTradingEnabled] = useState(false)
+  const [twoFaToken, setTwoFaToken] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [confirmPending, setConfirmPending] = useState(false)
+
+  useEffect(() => {
+    api.wallets().then(({ wallets: ws }) => {
+      setWallets(ws)
+      const active = ws.find(w => w.active)
+      if (active) setSelectedWalletId(active.id)
+    }).catch(() => {})
+  }, [])
+
+  // When wallet changes, reset state
+  useEffect(() => {
+    setLiveTradingEnabled(false)
+    setMsg(null)
+    setConfirmPending(false)
+    setTwoFaToken('')
+    if (!selectedWalletId) return
+    setLoading(true)
+    fetch(`/api/wallets/${encodeURIComponent(selectedWalletId)}/live-trading-status`, {
+      headers: { Authorization: `Bearer ${localStorage.getItem('token') || ''}` },
+    }).then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setLiveTradingEnabled(Boolean(d.liveTrading)) })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [selectedWalletId])
+
+  const handleToggle = async (wantEnabled: boolean) => {
+    if (wantEnabled && !confirmPending) {
+      setConfirmPending(true)
+      setMsg({ ok: false, text: 'WARNING: enabling live-trading gate allows real-money execution. Confirm with 2FA token below.' })
+      return
+    }
+    if (!selectedWalletId) return
+    setSaving(true)
+    setMsg(null)
+    try {
+      await api.setLiveTradingGate(selectedWalletId, wantEnabled, twoFaToken || undefined)
+      setLiveTradingEnabled(wantEnabled)
+      setTwoFaToken('')
+      setConfirmPending(false)
+      setMsg({ ok: true, text: wantEnabled ? 'Live-trading gate ENABLED' : 'Live-trading gate DISABLED' })
+      setTimeout(() => setMsg(null), 4000)
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.message || 'Failed to update live-trading gate' })
+    } finally { setSaving(false) }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    padding: '6px 10px', background: 'var(--bg3)', border: '1px solid var(--border2)',
+    borderRadius: 4, color: 'var(--text)', fontFamily: 'var(--font-mono)', fontSize: 13, outline: 'none',
+  }
+
+  return (
+    <section style={{ marginBottom: 36 }}>
+      <div className="aurora-section-title">LIVE TRADING GATE (PER WALLET)</div>
+      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: '20px' }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--warn)', marginBottom: 12, lineHeight: 1.6 }}>
+          This gate must be explicitly enabled before real-money orders can execute, even when wallet mode is set to LIVE.
+          Default is OFF. Disabling this will prevent all live order execution for this wallet.
+        </div>
+        {/* Wallet selector */}
+        <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>WALLET</label>
+          <select
+            value={selectedWalletId}
+            onChange={e => setSelectedWalletId(e.target.value)}
+            style={{ ...inputStyle, minWidth: 200 }}
+          >
+            <option value="">— pick wallet —</option>
+            {wallets.map(w => <option key={w.id} value={w.id}>{w.name}{w.active ? ' (active)' : ''}</option>)}
+          </select>
+          {loading && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>loading...</span>}
+        </div>
+
+        {selectedWalletId && !loading && (
+          <>
+            <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14 }}>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>STATUS</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: liveTradingEnabled ? 'var(--danger)' : 'var(--green)', fontWeight: 700 }}>
+                {liveTradingEnabled ? 'GATE OPEN (live orders enabled)' : 'GATE CLOSED (live orders blocked)'}
+              </span>
+            </div>
+
+            {confirmPending && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>2FA TOKEN (leave blank if 2FA not configured)</label>
+                <input
+                  type="text"
+                  value={twoFaToken}
+                  onChange={e => setTwoFaToken(e.target.value)}
+                  maxLength={6}
+                  placeholder="6-digit code"
+                  style={{ ...inputStyle, width: 120 }}
+                />
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {!liveTradingEnabled ? (
+                <button
+                  onClick={() => handleToggle(true)}
+                  disabled={saving}
+                  style={{
+                    padding: '7px 18px', background: 'transparent', color: 'var(--danger)',
+                    border: '1px solid rgba(239,68,68,0.5)',
+                    fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer',
+                    opacity: saving ? 0.7 : 1,
+                  }}
+                >
+                  {saving ? 'ENABLING...' : confirmPending ? 'CONFIRM ENABLE' : 'ENABLE GATE'}
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleToggle(false)}
+                  disabled={saving}
+                  style={{
+                    padding: '7px 18px', background: 'transparent', color: 'var(--muted)',
+                    border: '1px solid var(--border)',
+                    fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer',
+                    opacity: saving ? 0.7 : 1,
+                  }}
+                >
+                  {saving ? 'DISABLING...' : 'DISABLE GATE'}
+                </button>
+              )}
+              {confirmPending && (
+                <button
+                  onClick={() => { setConfirmPending(false); setTwoFaToken(''); setMsg(null) }}
+                  style={{
+                    padding: '7px 18px', background: 'transparent', color: 'var(--muted)',
+                    border: '1px solid var(--border)',
+                    fontFamily: 'var(--font-mono)', fontSize: 11, cursor: 'pointer',
+                  }}
+                >CANCEL</button>
+              )}
+            </div>
+
+            {msg && (
+              <div style={{ marginTop: 10, fontFamily: 'var(--font-mono)', fontSize: 11, color: msg.ok ? 'var(--green)' : 'var(--warn)' }}>
+                {msg.text}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function PerWalletTradingSection() {
+  const [wallets, setWallets] = useState<WalletInfo[]>([])
+  const [selectedWalletId, setSelectedWalletId] = useState<string>('')
+  const [tradingCfg, setTradingCfg] = useState<WalletTradingConfig | null>(null)
+  const [form, setForm] = useState({ tradingMode: 'swing' as TradingMode, cycleMinutes: 0, assetsText: '', maxTradesPerDay: 0, minHoldingMinutes: 0 })
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  useEffect(() => {
+    api.wallets().then(({ wallets: ws }) => {
+      setWallets(ws)
+      const active = ws.find(w => w.active)
+      if (active) setSelectedWalletId(active.id)
+    }).catch(() => {})
+  }, [])
+
+  const loadTradingCfg = useCallback(() => {
+    if (!selectedWalletId) return
+    setLoading(true)
+    api.walletTradingConfig(selectedWalletId)
+      .then(cfg => {
+        setTradingCfg(cfg)
+        setForm({
+          tradingMode: cfg.tradingMode,
+          cycleMinutes: cfg.cycleMinutes,
+          assetsText: cfg.assets.join(', '),
+          maxTradesPerDay: cfg.maxTradesPerDay,
+          minHoldingMinutes: cfg.minHoldingMinutes,
+        })
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [selectedWalletId])
+
+  useEffect(() => { loadTradingCfg() }, [loadTradingCfg])
+
+  const handleSave = async () => {
+    if (!selectedWalletId) return
+    setSaving(true); setMsg(null)
+    try {
+      const assets = form.assetsText.split(',').map(s => s.trim()).filter(Boolean)
+      await api.setWalletTradingConfig(selectedWalletId, {
+        tradingMode: form.tradingMode,
+        cycleMinutes: form.cycleMinutes,
+        assets,
+        maxTradesPerDay: form.maxTradesPerDay,
+        minHoldingMinutes: form.minHoldingMinutes,
+      })
+      setMsg({ ok: true, text: 'Saved' })
+      loadTradingCfg()
+      setTimeout(() => setMsg(null), 3000)
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.message || 'Failed to save' })
+    } finally { setSaving(false) }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    padding: '6px 10px', background: 'var(--bg3)', border: '1px solid var(--border2)',
+    borderRadius: 4, color: 'var(--text)', fontFamily: 'var(--font-mono)', fontSize: 13,
+    outline: 'none', width: 120,
+  }
+
+  return (
+    <section style={{ marginBottom: 36 }}>
+      <div className="aurora-section-title">PER-WALLET TRADING</div>
+      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: '20px' }}>
+        {/* Wallet picker */}
+        <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>WALLET</label>
+          <select
+            value={selectedWalletId}
+            onChange={e => setSelectedWalletId(e.target.value)}
+            style={{ padding: '6px 10px', background: 'var(--bg3)', border: '1px solid var(--border2)', borderRadius: 4, color: 'var(--text)', fontFamily: 'var(--font-mono)', fontSize: 12, outline: 'none' }}
+          >
+            <option value="">— pick wallet —</option>
+            {wallets.map(w => <option key={w.id} value={w.id}>{w.name}{w.active ? ' (active)' : ''}</option>)}
+          </select>
+          {loading && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)' }}>loading...</span>}
+        </div>
+
+        {selectedWalletId && !loading && tradingCfg && (
+          <>
+            {/* Mode picker */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', display: 'block', marginBottom: 8 }}>TRADING MODE</label>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {MODE_OPTIONS.map(m => (
+                  <button
+                    key={m.value}
+                    onClick={() => setForm(f => ({ ...f, tradingMode: m.value }))}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: 0,
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 11,
+                      letterSpacing: '0.06em',
+                      background: form.tradingMode === m.value ? 'var(--accent-dim)' : 'transparent',
+                      color: form.tradingMode === m.value ? 'var(--accent)' : 'var(--muted)',
+                      border: form.tradingMode === m.value ? '1px solid var(--border-accent)' : '1px solid var(--border)',
+                      cursor: 'pointer',
+                      display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start',
+                    }}
+                  >
+                    <span>{m.label}</span>
+                    <span style={{ fontSize: 9, opacity: 0.7 }}>{m.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Numeric overrides */}
+            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 20 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>
+                  CYCLE MINUTES <span style={{ opacity: 0.6 }}>(0 = mode default: {tradingCfg.effective.cycleMinutes})</span>
+                </label>
+                <input type="number" min={0} step={1} value={form.cycleMinutes}
+                  onChange={e => setForm(f => ({ ...f, cycleMinutes: parseInt(e.target.value) || 0 }))}
+                  style={inputStyle}
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>
+                  MAX TRADES/DAY <span style={{ opacity: 0.6 }}>(0 = mode default: {tradingCfg.effective.maxTradesPerDay})</span>
+                </label>
+                <input type="number" min={0} step={1} value={form.maxTradesPerDay}
+                  onChange={e => setForm(f => ({ ...f, maxTradesPerDay: parseInt(e.target.value) || 0 }))}
+                  style={inputStyle}
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>
+                  MIN HOLD MINUTES <span style={{ opacity: 0.6 }}>(0 = mode default: {tradingCfg.effective.minHoldingMinutes})</span>
+                </label>
+                <input type="number" min={0} step={1} value={form.minHoldingMinutes}
+                  onChange={e => setForm(f => ({ ...f, minHoldingMinutes: parseInt(e.target.value) || 0 }))}
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+
+            {/* Asset universe */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>
+                ASSET UNIVERSE <span style={{ opacity: 0.6 }}>(comma-separated; blank = mode default: {tradingCfg.effective.assets.join(', ')})</span>
+              </label>
+              <input
+                type="text"
+                value={form.assetsText}
+                onChange={e => setForm(f => ({ ...f, assetsText: e.target.value }))}
+                placeholder={`e.g. ${tradingCfg.effective.assets.join(', ')}`}
+                style={{ ...inputStyle, width: '100%', maxWidth: 500 }}
+              />
+            </div>
+
+            {/* Effective config summary */}
+            <div style={{ marginBottom: 20, padding: '10px 14px', background: 'var(--bg3)', border: '1px solid var(--border)', fontVariantNumeric: 'tabular-nums' }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 6 }}>EFFECTIVE (POST-MERGE)</div>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                {[
+                  ['Mode', tradingCfg.effective.tradingMode],
+                  ['Cycle', `${tradingCfg.effective.cycleMinutes}min`],
+                  ['SL', `${tradingCfg.effective.stopLossPct}%`],
+                  ['TP', `${tradingCfg.effective.takeProfitPct}%`],
+                  ['Max pos', String(tradingCfg.effective.maxOpenPositions)],
+                  ['Max trades/day', String(tradingCfg.effective.maxTradesPerDay)],
+                  ['Min hold', `${tradingCfg.effective.minHoldingMinutes}min`],
+                ].map(([k, v]) => (
+                  <span key={k} style={{ fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+                    <span style={{ color: 'var(--muted)' }}>{k}: </span>
+                    <span style={{ color: 'var(--text)' }}>{v}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Save */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                style={{
+                  padding: '7px 20px', background: saving ? 'var(--border)' : 'var(--accent)', color: saving ? 'var(--muted)' : '#000',
+                  border: 'none', fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
+                  cursor: saving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {saving ? 'SAVING...' : 'SAVE'}
+              </button>
+              {msg && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: msg.ok ? 'var(--green)' : 'var(--danger)' }}>{msg.text}</span>}
+            </div>
+          </>
+        )}
+      </div>
+    </section>
+  )
+}
+
+// ── Costs & Tax Section (per-wallet) ─────────────────────────────────────────
+function CostsTaxSection() {
+  const [wallets, setWallets] = useState<WalletInfo[]>([])
+  const [selectedWalletId, setSelectedWalletId] = useState<string>('')
+  const [form, setForm] = useState<{
+    feeKind: 'percent' | 'flat'
+    feeValue: number
+    minFee: number
+    taxRatePct: number
+    minNetProfitPct: number
+  }>({ feeKind: 'percent', feeValue: 0, minFee: 0, taxRatePct: 26, minNetProfitPct: 0.5 })
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  useEffect(() => {
+    api.wallets().then(({ wallets }) => {
+      setWallets(wallets)
+      if (wallets.length) setSelectedWalletId(wallets[0].id)
+    }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!selectedWalletId) return
+    setLoading(true)
+    api.getCostConfig(selectedWalletId)
+      .then(cfg => {
+        setForm({
+          feeKind: cfg.feeModel.kind,
+          feeValue: cfg.feeModel.value,
+          minFee: cfg.feeModel.minFee ?? 0,
+          taxRatePct: cfg.taxRatePct,
+          minNetProfitPct: cfg.minNetProfitPct,
+        })
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [selectedWalletId])
+
+  const handleSave = async () => {
+    if (!selectedWalletId) return
+    setSaving(true)
+    setMsg(null)
+    try {
+      await api.setCostConfig(selectedWalletId, {
+        feeModel: { kind: form.feeKind, value: form.feeValue, minFee: form.minFee },
+        taxRatePct: form.taxRatePct,
+        minNetProfitPct: form.minNetProfitPct,
+      })
+      setMsg({ ok: true, text: 'Saved' })
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.message || 'Save failed' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    padding: '6px 10px', background: 'var(--bg3)', border: '1px solid var(--border2)',
+    borderRadius: 4, color: 'var(--text)', fontFamily: 'var(--font-mono)', fontSize: 13, outline: 'none',
+  }
+
+  return (
+    <section style={{ marginBottom: 36 }}>
+      <div className="aurora-section-title">COSTS &amp; TAX (PER WALLET)</div>
+      <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: '20px' }}>
+        {wallets.length === 0 ? (
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>No wallets found.</div>
+        ) : (
+          <>
+            {/* Wallet selector */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', display: 'block', marginBottom: 6 }}>WALLET</label>
+              <select
+                value={selectedWalletId}
+                onChange={e => setSelectedWalletId(e.target.value)}
+                style={{ ...inputStyle, minWidth: 200 }}
+              >
+                {wallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </div>
+
+            {loading ? (
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>Loading...</div>
+            ) : (
+              <>
+                {/* Fee model kind */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 8 }}>FEE MODEL</div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    {(['percent', 'flat'] as const).map(k => (
+                      <button
+                        key={k}
+                        onClick={() => setForm(f => ({ ...f, feeKind: k }))}
+                        style={{
+                          padding: '6px 14px', borderRadius: 0,
+                          fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.06em',
+                          background: form.feeKind === k ? 'var(--accent-dim)' : 'transparent',
+                          color: form.feeKind === k ? 'var(--accent)' : 'var(--muted)',
+                          border: form.feeKind === k ? '1px solid var(--border-accent)' : '1px solid var(--border)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {k === 'percent' ? 'PERCENT' : 'FLAT USD'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Fee value + min fee */}
+                <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 16 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>
+                      FEE VALUE <span style={{ opacity: 0.7 }}>({form.feeKind === 'percent' ? '% per side' : '$ per side'})</span>
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="number" min={0} step={0.01} value={form.feeValue}
+                        onChange={e => setForm(f => ({ ...f, feeValue: parseFloat(e.target.value) || 0 }))}
+                        style={{ ...inputStyle, width: 90 }}
+                      />
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>
+                        {form.feeKind === 'percent' ? '%' : '$'}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>
+                      MIN FEE <span style={{ opacity: 0.7 }}>($ per side, optional)</span>
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="number" min={0} step={0.01} value={form.minFee}
+                        onChange={e => setForm(f => ({ ...f, minFee: parseFloat(e.target.value) || 0 }))}
+                        style={{ ...inputStyle, width: 90 }}
+                      />
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>$</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tax rate */}
+                <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 16 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>TAX RATE</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="number" min={0} max={100} step={0.5} value={form.taxRatePct}
+                        onChange={e => setForm(f => ({ ...f, taxRatePct: parseFloat(e.target.value) || 0 }))}
+                        style={{ ...inputStyle, width: 90 }}
+                      />
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>%</span>
+                    </div>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', opacity: 0.7 }}>26% = Italian capital gains rate</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em' }}>MIN NET PROFIT</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <input
+                        type="number" min={0} step={0.1} value={form.minNetProfitPct}
+                        onChange={e => setForm(f => ({ ...f, minNetProfitPct: parseFloat(e.target.value) || 0 }))}
+                        style={{ ...inputStyle, width: 90 }}
+                      />
+                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>%</span>
+                    </div>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', opacity: 0.7 }}>Reject trades with expected net below this</span>
+                  </div>
+                </div>
+
+                {/* Save */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <button
+                    onClick={handleSave}
+                    disabled={saving}
+                    style={{
+                      padding: '7px 20px', background: saving ? 'var(--border)' : 'var(--accent)', color: saving ? 'var(--muted)' : '#000',
+                      border: 'none', fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
+                      cursor: saving ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {saving ? 'SAVING...' : 'SAVE'}
+                  </button>
+                  {msg && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: msg.ok ? 'var(--green)' : 'var(--danger)' }}>{msg.text}</span>}
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </section>
   )
 }
 
@@ -435,18 +992,106 @@ export function Settings() {
     borderRadius: 4, color: 'var(--text)', fontFamily: 'var(--font-mono)', fontSize: 13, outline: 'none',
   }
 
-  return (
-    <div style={{ padding: '28px', maxWidth: 780, margin: '0 auto' }}>
+  const SIDEBAR_SECTIONS = [
+    { id: 'wallets',        label: 'Wallets' },
+    { id: 'per-wallet',     label: 'Per-Wallet Trading' },
+    { id: 'live-gate',      label: 'Live Trading Gate' },
+    { id: 'costs-tax',      label: 'Costs & Tax' },
+    { id: 'api-keys',       label: 'API Keys' },
+    { id: 'llm-model',      label: 'LLM Model & Cycle' },
+    { id: 'strategy',       label: 'Active Strategy' },
+    { id: 'risk',           label: 'Risk Management' },
+    { id: 'agent-behavior', label: 'Agent Behavior' },
+    { id: 'system-prompt',  label: 'System Prompt' },
+    { id: 'security',       label: 'Security' },
+    { id: 'theme',          label: 'Theme' },
+    { id: 'about',          label: 'About' },
+  ]
 
-      <div style={{ marginBottom: 32 }}>
-        <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, letterSpacing: '0.04em', color: 'var(--accent)', marginBottom: 6 }}>SETTINGS</h2>
-        <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>Agent configuration, risk limits and dashboard preferences.</p>
-      </div>
+  const scrollToSection = (id: string) => {
+    const el = document.getElementById(id)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  return (
+    <div style={{ display: 'flex', padding: '28px 0', maxWidth: 1100, margin: '0 auto', gap: 0 }}>
+
+      {/* ── Sticky sidebar ── */}
+      <nav style={{
+        width: 240,
+        flexShrink: 0,
+        position: 'sticky',
+        top: 80,
+        alignSelf: 'flex-start',
+        paddingLeft: 28,
+        paddingRight: 20,
+        paddingTop: 0,
+      }}>
+        <div style={{
+          fontFamily: 'var(--font-sans)',
+          fontSize: '0.58rem',
+          fontWeight: 600,
+          letterSpacing: '0.14em',
+          textTransform: 'uppercase',
+          color: 'var(--muted)',
+          marginBottom: 14,
+        }}>
+          SETTINGS
+        </div>
+        {SIDEBAR_SECTIONS.map(s => (
+          <div
+            key={s.id}
+            onClick={() => scrollToSection(s.id)}
+            style={{
+              fontFamily: 'var(--font-sans)',
+              fontSize: '0.78rem',
+              color: 'var(--muted)',
+              padding: '6px 0',
+              borderBottom: '1px solid var(--border)',
+              cursor: 'pointer',
+              transition: 'color 0.15s',
+            }}
+            onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.color = 'var(--text)'}
+            onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.color = 'var(--muted)'}
+          >
+            {s.label}
+          </div>
+        ))}
+      </nav>
+
+      {/* ── Main content ── */}
+      <div style={{ flex: 1, minWidth: 0, paddingRight: 28 }}>
+
+      {/* ── Wallets placeholder (section heading only — wallet list is in Profile) ── */}
+      <section id="wallets" style={{ marginBottom: 36, scrollMarginTop: 80 }}>
+        <div className="aurora-section-title">WALLETS</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: '16px 20px' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
+            Wallet management (add, rotate credentials, run cycle) is available on the{' '}
+            <span style={{ color: 'var(--accent)' }}>Profile page</span>.
+          </div>
+        </div>
+      </section>
+
+      {/* ── Per-Wallet Trading ── */}
+      <section id="per-wallet" style={{ scrollMarginTop: 80 }}>
+        <PerWalletTradingSection />
+      </section>
+
+      {/* ── Live-Trading Gate ── */}
+      <section id="live-gate" style={{ scrollMarginTop: 80 }}>
+        <LiveTradingGateSection />
+      </section>
+
+      {/* ── Costs & Tax ── */}
+      <section id="costs-tax" style={{ scrollMarginTop: 80 }}>
+        <CostsTaxSection />
+      </section>
 
       {/* ── API Keys ── */}
-      <section style={{ marginBottom: 36 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 16 }}>API KEYS</div>
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: '4px 20px 16px' }}>
+      <section id="api-keys" style={{ marginBottom: 36, scrollMarginTop: 80 }}>
+        <div className="aurora-section-title">API KEYS</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: '4px 20px 16px' }}>
           {loading ? (
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', padding: '12px 0' }}>Loading...</div>
           ) : keysErr ? (
@@ -465,9 +1110,9 @@ export function Settings() {
       </section>
 
       {/* ── LLM Provider & Model ── */}
-      <section style={{ marginBottom: 36 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 16 }}>LLM MODEL &amp; CYCLE</div>
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
+      <section id="llm-model" style={{ marginBottom: 36, scrollMarginTop: 80 }}>
+        <div className="aurora-section-title">LLM MODEL &amp; CYCLE</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: 20 }}>
           {loading ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>Loading...</div> : (<>
 
             {/* Provider toggle */}
@@ -479,9 +1124,9 @@ export function Settings() {
                   const fallback = p === 'openai' ? FALLBACK_OPENAI[0] : FALLBACK_CLAUDE[0]
                   patch('claudeModel')(fallback.id)
                 }} style={{
-                  padding: '7px 20px', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 11,
+                  padding: '7px 20px', borderRadius: 0, fontFamily: 'var(--font-mono)', fontSize: 11,
                   fontWeight: provider === p ? 700 : 400, cursor: 'pointer',
-                  background: provider === p ? 'var(--accent)' : 'var(--bg3)',
+                  background: provider === p ? 'var(--accent)' : 'transparent',
                   color: provider === p ? '#000' : 'var(--muted)',
                   border: `1px solid ${provider === p ? 'var(--accent)' : 'var(--border2)'}`,
                   letterSpacing: '0.06em',
@@ -494,7 +1139,7 @@ export function Settings() {
                 disabled={modelsLoading}
                 title="Refresh model list from API"
                 style={{
-                  marginLeft: 4, padding: '7px 10px', borderRadius: 6, fontFamily: 'var(--font-mono)', fontSize: 13,
+                  marginLeft: 4, padding: '7px 10px', fontFamily: 'var(--font-mono)', fontSize: 13,
                   background: 'transparent', color: modelsLoading ? 'var(--muted)' : 'var(--accent)',
                   border: '1px solid var(--border2)', cursor: modelsLoading ? 'wait' : 'pointer',
                 }}
@@ -524,8 +1169,9 @@ export function Settings() {
             <div style={{
               background: monthlyCost < 5 ? 'rgba(34,197,94,0.07)' : monthlyCost < 20 ? 'rgba(245,158,11,0.07)' : 'rgba(239,68,68,0.07)',
               border: `1px solid ${monthlyCost < 5 ? 'var(--green)' : monthlyCost < 20 ? 'var(--warn)' : 'var(--danger)'}`,
-              borderRadius: 6, padding: '12px 16px', marginBottom: 20,
+              padding: '12px 16px', marginBottom: 20,
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10,
+              fontVariantNumeric: 'tabular-nums',
             }}>
               <div>
                 <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.06em', marginBottom: 4 }}>
@@ -560,7 +1206,7 @@ export function Settings() {
                     ⚠ Could not fetch live models ({modelsError}) — showing fallback list
                   </div>
                 )}
-                <div style={{ background: 'var(--bg3)', borderRadius: 6, border: '1px solid var(--border)', overflow: 'hidden', maxHeight: 360, overflowY: 'auto' }}>
+                <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', overflow: 'hidden', maxHeight: 360, overflowY: 'auto' }}>
                   {modelList.map((m, i, arr) => {
                     const est       = estimateMonthlyCost(m.id, cfg.cycleMinutes)
                     const p         = getModelPricing(m.id)
@@ -604,9 +1250,9 @@ export function Settings() {
       </section>
 
       {/* ── Active Strategy ── */}
-      <section style={{ marginBottom: 36 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 16 }}>ACTIVE STRATEGY</div>
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
+      <section id="strategy" style={{ marginBottom: 36, scrollMarginTop: 80 }}>
+        <div className="aurora-section-title">ACTIVE STRATEGY</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: 20 }}>
           {loading ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>Loading...</div> : (
             <>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 12 }}>
@@ -641,9 +1287,9 @@ export function Settings() {
       </section>
 
       {/* ── Risk management ── */}
-      <section style={{ marginBottom: 36 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 16 }}>RISK MANAGEMENT</div>
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
+      <section id="risk" style={{ marginBottom: 36, scrollMarginTop: 80 }}>
+        <div className="aurora-section-title">RISK MANAGEMENT</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: 20 }}>
           {loading ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>Loading...</div> : (<>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px,1fr))', gap: 20, marginBottom: 20 }}>
               <NumInput label="STOP LOSS"           value={cfg.stopLossPct}      onChange={patch('stopLossPct')}      min={0.5}  max={50}  step={0.5} help="Close if price drops this % from entry" />
@@ -651,7 +1297,7 @@ export function Settings() {
               <NumInput label="MAX DAILY DRAWDOWN"  value={cfg.maxDrawdownPct}   onChange={patch('maxDrawdownPct')}   min={1}    max={100} step={1}   help="Circuit breaker daily equity drop limit" />
               <NumInput label="MAX OPEN POSITIONS"  value={cfg.maxOpenPositions} onChange={patch('maxOpenPositions')} min={1}    max={20}  step={1}   unit="pos" help="Refuse new buys above this limit" />
             </div>
-            <div style={{ background: 'rgba(99,102,241,0.07)', border: '1px solid var(--border2)', borderRadius: 6, padding: '10px 14px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', lineHeight: 1.6 }}>
+            <div style={{ background: 'rgba(var(--accent-rgb,200,255,0),0.04)', border: '1px solid var(--border)', padding: '10px 14px', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', lineHeight: 1.6 }}>
               SL/TP checked every 2 min. Circuit breaker resets daily at midnight UTC. Changes take effect on the next cycle.
             </div>
 
@@ -688,9 +1334,9 @@ export function Settings() {
       </section>
 
       {/* ── Agent Behavior ── */}
-      <section style={{ marginBottom: 36 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 16 }}>AGENT BEHAVIOR</div>
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
+      <section id="agent-behavior" style={{ marginBottom: 36, scrollMarginTop: 80 }}>
+        <div className="aurora-section-title">AGENT BEHAVIOR</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: 20 }}>
           {loading ? <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>Loading...</div> : (<>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px,1fr))', gap: 20, marginBottom: 20 }}>
               <NumInput
@@ -819,9 +1465,9 @@ export function Settings() {
       </section>
 
       {/* ── System Prompt ── */}
-      <section style={{ marginBottom: 36 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 16 }}>SYSTEM PROMPT</div>
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
+      <section id="system-prompt" style={{ marginBottom: 36, scrollMarginTop: 80 }}>
+        <div className="aurora-section-title">SYSTEM PROMPT</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: 20 }}>
           {customPrompt === null ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)' }}>
@@ -889,7 +1535,7 @@ export function Settings() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 36 }}>
         <button onClick={handleSave} disabled={saving || loading} style={{
           padding: '9px 24px', background: 'var(--accent)', color: '#000',
-          border: 'none', borderRadius: 4, fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700,
+          border: 'none', borderRadius: 0, fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700,
           cursor: saving ? 'wait' : 'pointer', opacity: saving ? 0.7 : 1, letterSpacing: '0.06em',
         }}>
           {saving ? 'SAVING...' : 'SAVE ALL SETTINGS'}
@@ -899,9 +1545,9 @@ export function Settings() {
       </div>
 
       {/* ── Security ── */}
-      <section style={{ marginBottom: 36 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 16 }}>SECURITY</div>
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 20 }}>
+      <section id="security" style={{ marginBottom: 36, scrollMarginTop: 80 }}>
+        <div className="aurora-section-title">SECURITY</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', padding: 20 }}>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text)', marginBottom: 16 }}>
             Change Password {me ? `(${me.username})` : ''}
           </div>
@@ -958,7 +1604,7 @@ export function Settings() {
                         alt="Scan this QR with your authenticator app"
                         width={220}
                         height={220}
-                        style={{ borderRadius: 8, border: '1px solid var(--border2)', background: '#fff', padding: 6 }}
+                        style={{ border: '1px solid var(--border2)', background: '#fff', padding: 6 }}
                       />
                     </div>
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', lineHeight: 1.5 }}>
@@ -1041,8 +1687,8 @@ export function Settings() {
       </section>
 
       {/* ── Theme ── */}
-      <section style={{ marginBottom: 36 }}>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 14 }}>THEME</div>
+      <section id="theme" style={{ marginBottom: 36, scrollMarginTop: 80 }}>
+        <div className="aurora-section-title">THEME</div>
         <ThemePicker
           value={currentTheme}
           onChange={(theme) => {
@@ -1055,9 +1701,9 @@ export function Settings() {
       <div style={{ margin: '32px 0', borderTop: '1px solid var(--border)' }} />
 
       {/* ── About ── */}
-      <section>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 14 }}>ABOUT</div>
-        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+      <section id="about" style={{ scrollMarginTop: 80 }}>
+        <div className="aurora-section-title">ABOUT</div>
+        <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', overflow: 'hidden' }}>
           {[
             { label: 'Dashboard',   value: 'React + Vite + Recharts' },
             { label: 'Agent',       value: 'Node.js + TypeScript' },
@@ -1074,6 +1720,8 @@ export function Settings() {
           ))}
         </div>
       </section>
+
+      </div>
     </div>
   )
 }

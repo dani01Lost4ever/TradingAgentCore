@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>aurora — Overview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600&display=swap" rel="stylesheet" />
+
+<style>
+/* ─── TOKENS ─────────────────────────────────────────────────────────── */
+:root {
+  --accent:        #C8FF00;
+  --accent-dim:    rgba(200,255,0,0.12);
+  --accent-glow:   rgba(200,255,0,0.06);
+  --neg:           #D94F3D;
+  --neg-dim:       rgba(217,79,61,0.14);
+  --bg:            #08090B;
+  --bg-card:       #0D0F12;
+  --bg-card2:      #111318;
+  --border:        rgba(255,255,255,0.06);
+  --border-accent: rgba(200,255,0,0.32);
+  --txt-primary:   #EEF0F3;
+  --txt-secondary: #7A7F8A;
+  --txt-muted:     #3E4350;
+  --font-display:  'IBM Plex Mono', 'Courier New', monospace;
+  --font-body:     'Bricolage Grotesque', 'Inter Display', Inter, sans-serif;
+  --radius:        4px;
+}
+
+/* ─── RESET ──────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; }
+
+/* ─── NOISE TEXTURE OVERLAY ──────────────────────────────────────────── */
+body {
+  background: var(--bg);
+  color: var(--txt-primary);
+  font-family: var(--font-body);
+  font-weight: 400;
+  line-height: 1.5;
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* SVG noise at 4% opacity */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+}
+
+/* ─── LAYOUT ─────────────────────────────────────────────────────────── */
+.app {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  grid-template-rows: auto auto 1fr;
+  min-height: 100vh;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 24px 40px;
+  gap: 0 20px;
+}
+
+/* ─── TOPSTRIP ───────────────────────────────────────────────────────── */
+.topstrip {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 18px 0 18px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 28px;
+  animation: fadeUp 0.4s ease both;
+}
+
+.brand {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: -0.03em;
+  color: var(--accent);
+  font-feature-settings: "ss01","cv11";
+}
+
+.sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--txt-muted);
+}
+
+.wallet-label {
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: var(--txt-secondary);
+  letter-spacing: 0.01em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: pulse 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse {
+  0%,100% { opacity:1; transform: scale(1); }
+  50%      { opacity:0.5; transform: scale(0.8); }
+}
+
+.topstrip-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  color: var(--txt-secondary);
+  letter-spacing: 0.04em;
+}
+
+.ws-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.7rem;
+  color: var(--txt-secondary);
+}
+.ws-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 3s ease-in-out infinite;
+}
+
+/* ─── MAIN COLUMN ────────────────────────────────────────────────────── */
+.main-col {
+  grid-column: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ─── RIGHT PANEL ────────────────────────────────────────────────────── */
+.right-col {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ─── SECTION TITLE ──────────────────────────────────────────────────── */
+.section-title {
+  font-family: var(--font-body);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--txt-secondary);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title::after {
+  content: '';
+  display: block;
+  height: 2px;
+  width: 20px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+/* ─── CARD BASE ──────────────────────────────────────────────────────── */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 22px;
+}
+
+/* ─── HERO ───────────────────────────────────────────────────────────── */
+.hero-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 28px 22px;
+  animation: fadeUp 0.5s 0.08s ease both;
+}
+
+.hero-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--txt-secondary);
+  margin-bottom: 8px;
+}
+
+.equity-number {
+  font-family: var(--font-display);
+  font-size: clamp(72px, 8vw, 108px);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  font-feature-settings: "tnum","ss01";
+  color: var(--txt-primary);
+  line-height: 1;
+  animation: numFlash 0.8s 0.5s ease both;
+}
+
+.equity-delta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  margin-bottom: 16px;
+}
+.delta-value {
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--accent);
+  font-feature-settings: "tnum";
+  letter-spacing: -0.02em;
+}
+.delta-pct {
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  color: var(--accent);
+  font-feature-settings: "tnum";
+  opacity: 0.7;
+}
+
+/* ─── SPARKLINE ──────────────────────────────────────────────────────── */
+.sparkline-wrap {
+  margin-top: 4px;
+}
+
+/* ─── STAT ROW ───────────────────────────────────────────────────────── */
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  animation: fadeUp 0.5s 0.16s ease both;
+}
+
+.stat-cell {
+  background: var(--bg-card);
+  padding: 14px 16px;
+  cursor: default;
+  position: relative;
+  transition: background 0.18s;
+}
+.stat-cell:hover { background: var(--bg-card2); }
+.stat-cell:hover::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+.stat-label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--txt-muted);
+  margin-bottom: 5px;
+  font-family: var(--font-body);
+}
+.stat-val {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  font-feature-settings: "tnum","ss01";
+  color: var(--txt-primary);
+  line-height: 1;
+}
+.stat-val.accent { color: var(--accent); }
+
+/* ─── PENDING BANNER ─────────────────────────────────────────────────── */
+.pending-banner {
+  border: 1px solid var(--border-accent);
+  background: var(--accent-glow);
+  border-radius: var(--radius);
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  animation: fadeUp 0.5s 0.24s ease both;
+}
+
+.pending-tag {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-family: var(--font-body);
+  border: 1px solid var(--border-accent);
+  padding: 2px 6px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.pending-desc {
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  color: var(--txt-primary);
+  font-feature-settings: "ss01";
+  flex: 1;
+}
+.pending-desc span {
+  color: var(--accent);
+  font-weight: 700;
+}
+.pending-conf {
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  color: var(--txt-secondary);
+}
+.pending-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.btn {
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  border: none;
+}
+.btn:hover { opacity: 0.8; cursor: pointer; }
+.btn-approve {
+  background: var(--accent);
+  color: #08090B;
+}
+.btn-reject {
+  background: transparent;
+  color: var(--txt-secondary);
+  border: 1px solid var(--border);
+}
+.btn-reject:hover { border-color: var(--neg); color: var(--neg); }
+
+/* ─── TABLE BASE ─────────────────────────────────────────────────────── */
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-feature-settings: "tnum";
+}
+.tbl th {
+  font-family: var(--font-body);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--txt-muted);
+  padding: 0 12px 10px 0;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.tbl th:last-child { text-align: right; padding-right: 0; }
+.tbl td {
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  font-weight: 400;
+  color: var(--txt-primary);
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.tbl td:last-child { text-align: right; padding-right: 0; }
+.tbl tbody tr {
+  position: relative;
+  cursor: default;
+  transition: background 0.15s;
+}
+.tbl tbody tr:hover { background: rgba(200,255,0,0.03); }
+.tbl tbody tr:hover td:first-child {
+  box-shadow: -3px 0 0 var(--accent) inset;
+}
+.tbl tbody tr:last-child td { border-bottom: none; }
+
+.ticker { font-weight: 700; font-size: 0.85rem; letter-spacing: -0.02em; }
+.pos { color: var(--accent); font-weight: 700; }
+.neg-txt { color: var(--neg); font-weight: 700; }
+.muted { color: var(--txt-secondary); }
+
+/* ─── POSITIONS SECTION ──────────────────────────────────────────────── */
+.positions-card {
+  animation: fadeUp 0.5s 0.32s ease both;
+}
+
+/* ─── CHART SECTION ──────────────────────────────────────────────────── */
+.chart-card {
+  animation: fadeUp 0.5s 0.40s ease both;
+}
+
+/* ─── PNLBAR SECTION ─────────────────────────────────────────────────── */
+.pnlbar-card {
+  animation: fadeUp 0.5s 0.48s ease both;
+}
+
+.pnlbar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 9px;
+}
+.pnlbar-label {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--txt-primary);
+  width: 42px;
+  flex-shrink: 0;
+}
+.pnlbar-track {
+  flex: 1;
+  height: 6px;
+  background: var(--bg-card2);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+.pnlbar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 1.2s cubic-bezier(0.16,1,0.3,1);
+}
+.pnlbar-fill.pos-fill  { background: var(--accent); }
+.pnlbar-fill.neg-fill  { background: var(--neg); }
+.pnlbar-val {
+  font-family: var(--font-display);
+  font-size: 0.7rem;
+  font-feature-settings: "tnum";
+  width: 80px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* ─── DECISION LOG ───────────────────────────────────────────────────── */
+.log-card {
+  animation: fadeUp 0.5s 0.56s ease both;
+}
+
+.action-pill {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  text-transform: uppercase;
+}
+.pill-buy    { background: rgba(200,255,0,0.15);  color: var(--accent); border: 1px solid rgba(200,255,0,0.3); }
+.pill-sell   { background: rgba(217,79,61,0.14);  color: var(--neg);    border: 1px solid rgba(217,79,61,0.3); }
+.pill-hold   { background: rgba(122,127,138,0.12); color: var(--txt-secondary); border: 1px solid rgba(122,127,138,0.2); }
+.pill-reject { background: rgba(217,79,61,0.08);  color: #A0522D;       border: 1px solid rgba(217,79,61,0.15); }
+
+.status-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.68rem;
+}
+.status-dot::before {
+  content: '';
+  display: inline-block;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+}
+.s-exec::before  { background: var(--accent); }
+.s-pend::before  { background: #F59E0B; animation: pulse 2s infinite; }
+.s-skip::before  { background: var(--txt-muted); }
+
+/* ─── LIVE LOGS ──────────────────────────────────────────────────────── */
+.logs-card {
+  animation: fadeUp 0.5s 0.64s ease both;
+  flex: 1;
+}
+
+.log-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+  max-height: 220px;
+}
+.log-line {
+  font-family: var(--font-display);
+  font-size: 0.65rem;
+  line-height: 1.8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 0;
+  border-bottom: 1px solid var(--border);
+  letter-spacing: 0.01em;
+}
+.log-line:last-child { border-bottom: none; }
+.log-line.l0 { color: var(--txt-primary);   opacity: 1;    }
+.log-line.l1 { color: var(--txt-secondary); opacity: 0.85; }
+.log-line.l2 { color: var(--txt-secondary); opacity: 0.65; }
+.log-line.l3 { color: var(--txt-muted);     opacity: 0.50; }
+.log-line.l4 { color: var(--txt-muted);     opacity: 0.35; }
+.log-line.l5 { color: var(--txt-muted);     opacity: 0.22; }
+
+.log-ts   { color: var(--txt-muted); }
+.log-ok   { color: var(--accent); }
+.log-warn { color: #F59E0B; }
+.log-err  { color: var(--neg); }
+
+/* ─── RIGHT COLUMN SMALL CARDS ───────────────────────────────────────── */
+.model-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  animation: fadeUp 0.5s 0.36s ease both;
+}
+.model-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.72rem;
+}
+.model-row:last-child { border-bottom: none; padding-bottom: 0; }
+.model-key   { color: var(--txt-secondary); font-family: var(--font-body); }
+.model-val   { font-family: var(--font-display); color: var(--txt-primary); font-size: 0.72rem; font-feature-settings: "tnum"; }
+.model-val.acc { color: var(--accent); font-weight: 700; }
+
+/* ─── ANIMATIONS ─────────────────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes numFlash {
+  0%   { opacity: 0; }
+  30%  { opacity: 1; }
+  55%  { opacity: 0.6; }
+  80%  { opacity: 1; }
+  100% { opacity: 1; }
+}
+
+/* stagger the main column children */
+.main-col > *:nth-child(1) { animation-delay: 0.08s; }
+.main-col > *:nth-child(2) { animation-delay: 0.16s; }
+.main-col > *:nth-child(3) { animation-delay: 0.24s; }
+.main-col > *:nth-child(4) { animation-delay: 0.32s; }
+.main-col > *:nth-child(5) { animation-delay: 0.40s; }
+.main-col > *:nth-child(6) { animation-delay: 0.48s; }
+.main-col > *:nth-child(7) { animation-delay: 0.56s; }
+
+.right-col > *:nth-child(1) { animation-delay: 0.20s; }
+.right-col > *:nth-child(2) { animation-delay: 0.36s; }
+.right-col > *:nth-child(3) { animation-delay: 0.52s; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── TOP STRIP ──────────────────────────────────────────────────── -->
+  <div class="topstrip">
+    <span class="brand">aurora</span>
+    <span class="sep"></span>
+    <span class="wallet-label">
+      <span class="live-dot"></span>
+      Long-Term ETF &middot; IBKR &middot; LIVE
+    </span>
+    <div class="topstrip-right">
+      <span class="ws-status"><span class="ws-dot"></span>WS connected</span>
+      <span id="localtime">00:00:00</span>
+    </div>
+  </div>
+
+  <!-- ── MAIN COLUMN ─────────────────────────────────────────────────── -->
+  <div class="main-col">
+
+    <!-- HERO EQUITY -->
+    <div class="hero-card card">
+      <div class="hero-label">portfolio equity</div>
+      <div class="equity-number" id="equityNum">$24,318.40</div>
+      <div class="equity-delta">
+        <span class="delta-value">+$305.20</span>
+        <span class="delta-pct">· +1.27% today</span>
+      </div>
+      <!-- Sparkline SVG -->
+      <div class="sparkline-wrap">
+        <svg width="100%" height="52" viewBox="0 0 600 52" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="spkGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#C8FF00" stop-opacity="0.18"/>
+              <stop offset="100%" stop-color="#C8FF00" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <!-- area fill -->
+          <path d="M0,40 C30,38 60,35 90,32 S150,28 180,26 S240,24 270,22 S330,20 360,18 S420,21 450,19 S510,14 540,11 L600,8 L600,52 L0,52 Z"
+                fill="url(#spkGrad)"/>
+          <!-- line -->
+          <path d="M0,40 C30,38 60,35 90,32 S150,28 180,26 S240,24 270,22 S330,20 360,18 S420,21 450,19 S510,14 540,11 L600,8"
+                fill="none" stroke="#C8FF00" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- end dot -->
+          <circle cx="600" cy="8" r="3" fill="#C8FF00"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- STAT ROW -->
+    <div class="stat-row">
+      <div class="stat-cell">
+        <div class="stat-label">Total Decisions</div>
+        <div class="stat-val">1,247</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-label">Executed</div>
+        <div class="stat-val">412</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-label">Win Rate</div>
+        <div class="stat-val accent">64.8%</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-label">Net P&amp;L</div>
+        <div class="stat-val accent">+$2,317</div>
+      </div>
+      <div class="stat-cell">
+        <div class="stat-label">Open Pos.</div>
+        <div class="stat-val">4 <span style="color:var(--txt-muted);font-size:0.7rem;">/ 6</span></div>
+      </div>
+    </div>
+
+    <!-- PENDING BANNER -->
+    <div class="pending-banner">
+      <span class="pending-tag">pending</span>
+      <span class="pending-desc">
+        BUY &nbsp;<span>NVDA</span>&nbsp;· 8 shares @ $892.40 &nbsp;|&nbsp; strategy: momentum_breakout
+      </span>
+      <span class="pending-conf">conf&nbsp;<span style="color:var(--accent);font-weight:700;">0.72</span></span>
+      <div class="pending-actions">
+        <button class="btn btn-approve">Approve</button>
+        <button class="btn btn-reject">Reject</button>
+      </div>
+    </div>
+
+    <!-- POSITIONS TABLE -->
+    <div class="positions-card card">
+      <div class="section-title">open positions</div>
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Asset</th>
+            <th>Side</th>
+            <th>Shares</th>
+            <th>Avg Entry</th>
+            <th>Current</th>
+            <th>Mkt Value</th>
+            <th>Net P&amp;L</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="ticker">AAPL</span></td>
+            <td><span class="action-pill pill-buy">long</span></td>
+            <td>14</td>
+            <td class="muted">$168.22</td>
+            <td>$174.50</td>
+            <td>$2,443.00</td>
+            <td class="pos">+$87.92</td>
+          </tr>
+          <tr>
+            <td><span class="ticker">SPY</span></td>
+            <td><span class="action-pill pill-buy">long</span></td>
+            <td>10</td>
+            <td class="muted">$519.80</td>
+            <td>$527.14</td>
+            <td>$5,271.40</td>
+            <td class="pos">+$73.40</td>
+          </tr>
+          <tr>
+            <td><span class="ticker">VOO</span></td>
+            <td><span class="action-pill pill-buy">long</span></td>
+            <td>6</td>
+            <td class="muted">$477.90</td>
+            <td>$471.20</td>
+            <td>$2,827.20</td>
+            <td class="neg-txt">−$40.20</td>
+          </tr>
+          <tr>
+            <td><span class="ticker">NVDA</span></td>
+            <td><span class="action-pill pill-buy">long</span></td>
+            <td>4</td>
+            <td class="muted">$861.00</td>
+            <td>$892.40</td>
+            <td>$3,569.60</td>
+            <td class="pos">+$125.60</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- EQUITY + DRAWDOWN CHART -->
+    <div class="chart-card card">
+      <div class="section-title">equity &amp; drawdown — 30d</div>
+      <svg width="100%" height="180" viewBox="0 0 680 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#C8FF00" stop-opacity="0.08"/>
+            <stop offset="100%" stop-color="#C8FF00" stop-opacity="0"/>
+          </linearGradient>
+          <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#D94F3D" stop-opacity="0.20"/>
+            <stop offset="100%" stop-color="#D94F3D" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <!-- Hairline grid -->
+        <line x1="0" y1="30"  x2="680" y2="30"  stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+        <line x1="0" y1="60"  x2="680" y2="60"  stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+        <line x1="0" y1="90"  x2="680" y2="90"  stroke="rgba(255,255,255,0.04)" stroke-width="1"/>
+        <line x1="0" y1="115" x2="680" y2="115" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+        <!-- Y-axis labels -->
+        <text x="4" y="27"  font-family="'IBM Plex Mono',monospace" font-size="9" fill="rgba(122,127,138,0.6)">$25k</text>
+        <text x="4" y="57"  font-family="'IBM Plex Mono',monospace" font-size="9" fill="rgba(122,127,138,0.6)">$24k</text>
+        <text x="4" y="87"  font-family="'IBM Plex Mono',monospace" font-size="9" fill="rgba(122,127,138,0.6)">$23k</text>
+        <!-- Peak dashed line -->
+        <line x1="0" y1="22" x2="680" y2="22" stroke="rgba(200,255,0,0.18)" stroke-width="1" stroke-dasharray="4,6"/>
+        <text x="640" y="18" font-family="'IBM Plex Mono',monospace" font-size="8" fill="rgba(200,255,0,0.35)">peak</text>
+        <!-- Equity area fill -->
+        <path d="M0,88 C30,84 60,78 90,72 S160,66 200,62 S270,65 310,58 S380,50 420,44 S490,48 530,40 S610,32 680,28 L680,100 L0,100 Z"
+              fill="url(#eqGrad)"/>
+        <!-- Equity line -->
+        <path d="M0,88 C30,84 60,78 90,72 S160,66 200,62 S270,65 310,58 S380,50 420,44 S490,48 530,40 S610,32 680,28"
+              fill="none" stroke="#C8FF00" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- Drawdown divider -->
+        <line x1="0" y1="108" x2="680" y2="108" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+        <text x="4" y="121" font-family="'IBM Plex Mono',monospace" font-size="9" fill="rgba(122,127,138,0.5)">drawdown</text>
+        <!-- Drawdown fill -->
+        <path d="M0,112 L80,112 C110,112 130,118 160,120 S220,124 250,126 S300,114 340,112 S420,112 450,116 S530,122 570,120 S640,112 680,112 L680,145 L0,145 Z"
+              fill="url(#ddGrad)"/>
+        <!-- Drawdown line -->
+        <path d="M0,112 L80,112 C110,112 130,118 160,120 S220,124 250,126 S300,114 340,112 S420,112 450,116 S530,122 570,120 S640,112 680,112"
+              fill="none" stroke="rgba(217,79,61,0.6)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <!-- X labels -->
+        <text x="0"   y="175" font-family="'IBM Plex Mono',monospace" font-size="9" fill="rgba(122,127,138,0.5)">Apr 13</text>
+        <text x="160" y="175" font-family="'IBM Plex Mono',monospace" font-size="9" fill="rgba(122,127,138,0.5)">Apr 21</text>
+        <text x="320" y="175" font-family="'IBM Plex Mono',monospace" font-size="9" fill="rgba(122,127,138,0.5)">Apr 29</text>
+        <text x="480" y="175" font-family="'IBM Plex Mono',monospace" font-size="9" fill="rgba(122,127,138,0.5)">May 7</text>
+        <text x="618" y="175" font-family="'IBM Plex Mono',monospace" font-size="9" fill="rgba(122,127,138,0.5)">May 13</text>
+      </svg>
+    </div>
+
+    <!-- PER-ASSET P&L BARS -->
+    <div class="pnlbar-card card">
+      <div class="section-title">per-asset net p&amp;l</div>
+      <div class="pnlbar-row">
+        <span class="pnlbar-label">NVDA</span>
+        <div class="pnlbar-track"><div class="pnlbar-fill pos-fill" style="width:92%"></div></div>
+        <span class="pnlbar-val pos">+$1,042.80</span>
+      </div>
+      <div class="pnlbar-row">
+        <span class="pnlbar-label">AAPL</span>
+        <div class="pnlbar-track"><div class="pnlbar-fill pos-fill" style="width:68%"></div></div>
+        <span class="pnlbar-val pos">+$782.10</span>
+      </div>
+      <div class="pnlbar-row">
+        <span class="pnlbar-label">SPY</span>
+        <div class="pnlbar-track"><div class="pnlbar-fill pos-fill" style="width:44%"></div></div>
+        <span class="pnlbar-val pos">+$501.30</span>
+      </div>
+      <div class="pnlbar-row">
+        <span class="pnlbar-label">QQQ</span>
+        <div class="pnlbar-track"><div class="pnlbar-fill neg-fill" style="width:22%"></div></div>
+        <span class="pnlbar-val neg-txt">−$248.60</span>
+      </div>
+      <div class="pnlbar-row" style="margin-bottom:0">
+        <span class="pnlbar-label">VOO</span>
+        <div class="pnlbar-track"><div class="pnlbar-fill neg-fill" style="width:14%"></div></div>
+        <span class="pnlbar-val neg-txt">−$159.05</span>
+      </div>
+    </div>
+
+    <!-- DECISION LOG -->
+    <div class="log-card card">
+      <div class="section-title">decision log</div>
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Action</th>
+            <th>Asset</th>
+            <th>Strategy</th>
+            <th>Net P&amp;L</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="muted">14:31:08</td>
+            <td><span class="action-pill pill-buy">buy</span></td>
+            <td><span class="ticker">NVDA</span></td>
+            <td class="muted">momentum_breakout</td>
+            <td class="pos">+$125.60</td>
+            <td><span class="status-dot s-exec">exec</span></td>
+          </tr>
+          <tr>
+            <td class="muted">13:58:44</td>
+            <td><span class="action-pill pill-sell">sell</span></td>
+            <td><span class="ticker">MSFT</span></td>
+            <td class="muted">mean_reversion</td>
+            <td class="pos">+$58.40</td>
+            <td><span class="status-dot s-exec">exec</span></td>
+          </tr>
+          <tr>
+            <td class="muted">13:22:17</td>
+            <td><span class="action-pill pill-hold">hold</span></td>
+            <td><span class="ticker">SPY</span></td>
+            <td class="muted">trend_follow</td>
+            <td class="muted">—</td>
+            <td><span class="status-dot s-skip">skip</span></td>
+          </tr>
+          <tr>
+            <td class="muted">12:47:02</td>
+            <td><span class="action-pill pill-buy">buy</span></td>
+            <td><span class="ticker">AAPL</span></td>
+            <td class="muted">ml_signal_v3</td>
+            <td class="pos">+$87.92</td>
+            <td><span class="status-dot s-exec">exec</span></td>
+          </tr>
+          <tr>
+            <td class="muted">11:55:30</td>
+            <td><span class="action-pill pill-sell">sell</span></td>
+            <td><span class="ticker">QQQ</span></td>
+            <td class="muted">volatility_arb</td>
+            <td class="neg-txt">−$38.20</td>
+            <td><span class="status-dot s-exec">exec</span></td>
+          </tr>
+          <tr>
+            <td class="muted">11:11:54</td>
+            <td><span class="action-pill pill-buy">buy</span></td>
+            <td><span class="ticker">VOO</span></td>
+            <td class="muted">momentum_breakout</td>
+            <td class="neg-txt">−$40.20</td>
+            <td><span class="status-dot s-exec">exec</span></td>
+          </tr>
+          <tr>
+            <td class="muted">10:38:11</td>
+            <td><span class="action-pill pill-hold">hold</span></td>
+            <td><span class="ticker">NVDA</span></td>
+            <td class="muted">ml_signal_v3</td>
+            <td class="muted">—</td>
+            <td><span class="status-dot s-skip">skip</span></td>
+          </tr>
+          <tr>
+            <td class="muted">10:02:47</td>
+            <td><span class="action-pill pill-sell">sell</span></td>
+            <td><span class="ticker">AAPL</span></td>
+            <td class="muted">mean_reversion</td>
+            <td class="pos">+$112.30</td>
+            <td><span class="status-dot s-exec">exec</span></td>
+          </tr>
+          <tr>
+            <td class="muted">09:34:22</td>
+            <td><span class="action-pill pill-buy">buy</span></td>
+            <td><span class="ticker">SPY</span></td>
+            <td class="muted">trend_follow</td>
+            <td class="muted">—</td>
+            <td><span class="status-dot s-pend">pend</span></td>
+          </tr>
+          <tr>
+            <td class="muted">09:02:05</td>
+            <td><span class="action-pill pill-reject">skip</span></td>
+            <td><span class="ticker">TSLA</span></td>
+            <td class="muted">momentum_breakout</td>
+            <td class="muted">—</td>
+            <td><span class="status-dot s-skip">skip</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div><!-- /main-col -->
+
+  <!-- ── RIGHT COLUMN ────────────────────────────────────────────────── -->
+  <div class="right-col">
+
+    <!-- MODEL / SESSION INFO -->
+    <div class="model-card">
+      <div class="section-title">session</div>
+      <div class="model-row">
+        <span class="model-key">Model</span>
+        <span class="model-val acc">aurora-v2.1</span>
+      </div>
+      <div class="model-row">
+        <span class="model-key">Session start</span>
+        <span class="model-val">09:00:00</span>
+      </div>
+      <div class="model-row">
+        <span class="model-key">Data feed</span>
+        <span class="model-val acc">LIVE</span>
+      </div>
+      <div class="model-row">
+        <span class="model-key">Latency</span>
+        <span class="model-val">14 ms</span>
+      </div>
+      <div class="model-row">
+        <span class="model-key">Decisions/h</span>
+        <span class="model-val">92</span>
+      </div>
+      <div class="model-row">
+        <span class="model-key">Max drawdown</span>
+        <span class="model-val" style="color:var(--neg);">−3.84%</span>
+      </div>
+      <div class="model-row">
+        <span class="model-key">Sharpe (30d)</span>
+        <span class="model-val acc">1.74</span>
+      </div>
+    </div>
+
+    <!-- LIVE LOGS -->
+    <div class="logs-card model-card">
+      <div class="section-title">live logs</div>
+      <div class="log-lines" id="logLines">
+        <div class="log-line l0">
+          <span class="log-ts">14:31:08</span>
+          <span class="log-ok"> OK </span>
+          NVDA BUY 8@892.40 · slippage +0.02%
+        </div>
+        <div class="log-line l1">
+          <span class="log-ts">14:31:05</span>
+          <span class="log-ok"> OK </span>
+          order 8821 confirmed IBKR
+        </div>
+        <div class="log-line l2">
+          <span class="log-ts">14:31:00</span>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ml_signal_v3 score 0.72 → BUY
+        </div>
+        <div class="log-line l3">
+          <span class="log-ts">14:30:55</span>
+          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; fetching NVDA L2 depth
+        </div>
+        <div class="log-line l4">
+          <span class="log-ts">13:58:44</span>
+          <span class="log-ok"> OK </span>
+          MSFT SELL 5@415.20 · net +$58.40
+        </div>
+        <div class="log-line l5">
+          <span class="log-ts">13:55:12</span>
+          <span class="log-warn"> WRN </span>
+          QQQ vol spike — circuit check pass
+        </div>
+      </div>
+    </div>
+
+    <!-- RISK GAUGE -->
+    <div class="model-card">
+      <div class="section-title">risk</div>
+      <!-- SVG gauge arc -->
+      <svg width="100%" height="90" viewBox="0 0 180 90" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#C8FF00"/>
+            <stop offset="60%" stop-color="#F59E0B"/>
+            <stop offset="100%" stop-color="#D94F3D"/>
+          </linearGradient>
+        </defs>
+        <!-- background arc -->
+        <path d="M 20 80 A 70 70 0 0 1 160 80"
+              fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="8" stroke-linecap="round"/>
+        <!-- value arc (38% fill ~risk LOW-MEDIUM) -->
+        <path d="M 20 80 A 70 70 0 0 1 160 80"
+              fill="none" stroke="url(#gaugeGrad)" stroke-width="8" stroke-linecap="round"
+              stroke-dasharray="220" stroke-dashoffset="136"
+              style="transition: stroke-dashoffset 1.4s cubic-bezier(0.16,1,0.3,1);"/>
+        <text x="90" y="72"
+              font-family="'IBM Plex Mono',monospace" font-size="20" font-weight="700"
+              fill="#EEF0F3" text-anchor="middle"
+              font-feature-settings='"tnum"'>38%</text>
+        <text x="90" y="85"
+              font-family="'Bricolage Grotesque',sans-serif" font-size="8" font-weight="600"
+              fill="rgba(122,127,138,0.7)" text-anchor="middle"
+              letter-spacing="0.1em" text-transform="uppercase">RISK EXPOSURE</text>
+        <text x="22"  y="94" font-family="'IBM Plex Mono',monospace" font-size="8" fill="rgba(200,255,0,0.5)">low</text>
+        <text x="148" y="94" font-family="'IBM Plex Mono',monospace" font-size="8" fill="rgba(217,79,61,0.5)" text-anchor="end">high</text>
+      </svg>
+      <div class="model-row">
+        <span class="model-key">VaR (95%, 1d)</span>
+        <span class="model-val" style="color:var(--neg);">−$312.40</span>
+      </div>
+      <div class="model-row">
+        <span class="model-key">Beta</span>
+        <span class="model-val">0.84</span>
+      </div>
+      <div class="model-row" style="border-bottom:none">
+        <span class="model-key">Corr (SPY)</span>
+        <span class="model-val">0.71</span>
+      </div>
+    </div>
+
+  </div><!-- /right-col -->
+
+</div><!-- /app -->
+
+<script>
+/* ── Clock ────────────────────────────────────────────────────────────── */
+function tick() {
+  const el = document.getElementById('localtime');
+  if (!el) return;
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2,'0');
+  const mm = String(now.getMinutes()).padStart(2,'0');
+  const ss = String(now.getSeconds()).padStart(2,'0');
+  el.textContent = hh + ':' + mm + ':' + ss;
+}
+tick();
+setInterval(tick, 1000);
+
+/* ── Number flash on load ─────────────────────────────────────────────── */
+const numEl = document.getElementById('equityNum');
+if (numEl) {
+  numEl.style.animation = 'none';
+  void numEl.offsetHeight; // reflow
+  numEl.style.animation = 'numFlash 1.0s 0.3s ease both';
+}
+
+/* ── Animate P&L bars from 0 on load ────────────────────────────────── */
+window.addEventListener('load', function() {
+  const fills = document.querySelectorAll('.pnlbar-fill');
+  fills.forEach(function(f) {
+    const w = f.style.width;
+    f.style.width = '0';
+    requestAnimationFrame(function() {
+      setTimeout(function() {
+        f.style.transition = 'width 1.2s cubic-bezier(0.16,1,0.3,1)';
+        f.style.width = w;
+      }, 400);
+    });
+  });
+});
+</script>
+</body>
+</html>

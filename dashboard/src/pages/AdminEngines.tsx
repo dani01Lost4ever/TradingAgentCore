@@ -57,12 +57,12 @@ export function AdminEngines() {
         <>
           <div style={{ marginBottom: 18 }}>
             <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)', margin: '0 0 8px' }}>USERS</h3>
-            <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                <thead style={{ background: 'var(--bg2)' }}>
+            <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
+              <table className="aurora-table" style={{ width: '100%' }}>
+                <thead>
                   <tr>
                     {['USERNAME', 'ROLE', '2FA', 'BLOCKED', 'BLOCK REASON', 'ENGINE', 'ACTIONS'].map(h => (
-                      <th key={h} style={{ textAlign: 'left', padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>{h}</th>
+                      <th key={h} style={{ textAlign: 'left' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
@@ -71,9 +71,9 @@ export function AdminEngines() {
                     const engine = engineByUserId.get(u.id)
                     return (
                       <tr key={u.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '10px 12px' }}>{u.username}</td>
-                        <td style={{ padding: '10px 12px' }}>{u.role}</td>
-                        <td style={{ padding: '10px 12px' }}>{u.twoFactorEnabled ? 'on' : 'off'}</td>
+                        <td style={{  }}>{u.username}</td>
+                        <td style={{  }}>{u.role}</td>
+                        <td style={{  }}>{u.twoFactorEnabled ? 'on' : 'off'}</td>
                         <td style={{ padding: '10px 12px', color: u.blocked ? 'var(--danger)' : 'var(--green)' }}>{u.blocked ? 'yes' : 'no'}</td>
                         <td style={{ padding: '10px 12px', color: 'var(--muted)' }}>{u.blockedReason || '-'}</td>
                         <td style={{ padding: '10px 12px', color: 'var(--muted)' }}>
@@ -97,36 +97,36 @@ export function AdminEngines() {
             </div>
           </div>
 
-          <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-            <h3 style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text)', margin: 0, padding: '10px 12px', borderBottom: '1px solid var(--border)', background: 'var(--bg2)' }}>
-              ENGINES & SCHEDULERS
-            </h3>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-            <thead style={{ background: 'var(--bg2)' }}>
+          <div style={{ border: '1px solid var(--border)', overflow: 'hidden' }}>
+            <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.65rem', fontWeight: 600, letterSpacing: '0.13em', textTransform: 'uppercase', color: 'var(--muted)', padding: '10px 12px', borderBottom: '1px solid var(--border)', background: 'var(--bg2)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              ENGINES &amp; SCHEDULERS
+            </div>
+          <table className="aurora-table" style={{ width: '100%' }}>
+            <thead>
               <tr>
                 {['USER', 'STATE', 'CYCLES', 'NEXT CYCLE', 'NEXT DATA', 'NEXT OUTCOME', 'NEXT RISK', 'LAST ERROR', 'ACTIONS'].map(h => (
-                  <th key={h} style={{ textAlign: 'left', padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>{h}</th>
+                  <th key={h} style={{ textAlign: 'left' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {engines.map(e => (
                 <tr key={e.userId} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '10px 12px' }}>{e.username}</td>
+                  <td style={{  }}>{e.username}</td>
                   <td style={{ padding: '10px 12px', color: e.blocked ? 'var(--danger)' : (e.paused ? 'var(--warn)' : 'var(--green)') }}>
                     {e.blocked ? 'blocked' : e.paused ? 'paused' : 'running'}
                   </td>
-                  <td style={{ padding: '10px 12px' }}>{e.cycles}</td>
-                  <td style={{ padding: '10px 12px' }}>
+                  <td style={{  }}>{e.cycles}</td>
+                  <td style={{  }}>
                     {fmtWhen(e.nextCycleAt)} ({e.cycleIntervalMinutes ?? '-'}m)
                   </td>
-                  <td style={{ padding: '10px 12px' }}>
+                  <td style={{  }}>
                     {fmtWhen(e.nextDataRefreshAt)} ({e.dataIntervalMinutes ?? '-'}m)
                   </td>
-                  <td style={{ padding: '10px 12px' }}>
+                  <td style={{  }}>
                     {fmtWhen(e.nextOutcomeAt)} ({e.outcomeIntervalMinutes}m)
                   </td>
-                  <td style={{ padding: '10px 12px' }}>
+                  <td style={{  }}>
                     {fmtWhen(e.nextRiskCheckAt)} ({e.riskIntervalMinutes}m)
                   </td>
                   <td style={{ padding: '10px 12px', color: e.lastError ? 'var(--danger)' : 'var(--muted)' }}>{e.lastError || '-'}</td>
@@ -151,11 +151,11 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div style={{
       border: '1px solid var(--border)',
-      borderRadius: 6,
       padding: '8px 10px',
       minWidth: 140,
       background: 'var(--bg2)',
       fontFamily: 'var(--font-mono)',
+      fontVariantNumeric: 'tabular-nums',
     }}>
       <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 3 }}>{label}</div>
       <div style={{ fontSize: 14, color: 'var(--text)' }}>{value}</div>
@@ -175,6 +175,5 @@ const btnStyle: CSSProperties = {
   border: '1px solid var(--border2)',
   background: 'var(--bg2)',
   color: 'var(--text)',
-  borderRadius: 4,
   cursor: 'pointer',
 }

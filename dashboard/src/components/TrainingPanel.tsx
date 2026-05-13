@@ -78,7 +78,7 @@ export function TrainingPanel() {
   const ready = (status?.datasetSize ?? 0) >= 50
 
   return (
-    <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+    <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', overflow: 'hidden' }}>
 
       {/* Header — always visible */}
       <div
@@ -93,7 +93,7 @@ export function TrainingPanel() {
         {status && (
           <span style={{
             fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 600, letterSpacing: '0.06em',
-            padding: '2px 8px', borderRadius: 3, marginRight: 10,
+            padding: '2px 8px', marginRight: 10,
             background: providerIsOllama ? 'rgba(129,140,248,0.15)' : 'rgba(0,212,170,0.12)',
             color: providerIsOllama ? 'var(--accent2)' : 'var(--accent)',
             border: `1px solid ${providerIsOllama ? 'rgba(129,140,248,0.3)' : 'rgba(0,212,170,0.25)'}`,
@@ -141,7 +141,7 @@ export function TrainingPanel() {
               onClick={doExport}
               disabled={exporting}
               style={{
-                padding: '8px 18px', borderRadius: 5,
+                padding: '8px 18px', 
                 background: 'rgba(0,212,170,0.1)', color: 'var(--accent)',
                 border: '1px solid rgba(0,212,170,0.25)', fontWeight: 600, letterSpacing: '0.05em',
               }}
@@ -153,7 +153,7 @@ export function TrainingPanel() {
               href={api.datasetDownloadUrl()}
               download
               style={{
-                padding: '8px 18px', borderRadius: 5, textDecoration: 'none',
+                padding: '8px 18px',  textDecoration: 'none',
                 background: status?.lastExportFile ? 'rgba(129,140,248,0.1)' : 'rgba(255,255,255,0.04)',
                 color: status?.lastExportFile ? 'var(--accent2)' : 'var(--muted)',
                 border: `1px solid ${status?.lastExportFile ? 'rgba(129,140,248,0.25)' : 'var(--border)'}`,
@@ -169,7 +169,7 @@ export function TrainingPanel() {
               target="_blank"
               rel="noopener noreferrer"
               style={{
-                padding: '8px 18px', borderRadius: 5, textDecoration: 'none',
+                padding: '8px 18px',  textDecoration: 'none',
                 background: 'rgba(255,255,255,0.04)', color: 'var(--muted)',
                 border: '1px solid var(--border)',
                 fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, letterSpacing: '0.05em',
@@ -207,7 +207,7 @@ export function TrainingPanel() {
                     <pre style={{
                       fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--accent2)',
                       background: 'var(--bg3)', border: '1px solid var(--border)',
-                      borderRadius: 4, padding: '6px 10px', overflowX: 'auto',
+                      padding: '6px 10px', overflowX: 'auto',
                     }}>
                       {step.code}
                     </pre>
@@ -230,7 +230,7 @@ export function TrainingPanel() {
 
 function StatusTile({ label, value, accent }: { label: string; value: string; accent: string }) {
   return (
-    <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 6, padding: '10px 14px' }}>
+    <div style={{ background: 'var(--bg3)', border: '1px solid var(--border)', padding: '10px 14px' }}>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 4 }}>
         {label}
       </div>

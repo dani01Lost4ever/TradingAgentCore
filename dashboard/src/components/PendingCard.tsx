@@ -28,7 +28,7 @@ export function PendingCard({ trade, onDone }: Props) {
   return (
     <div style={{
       background: 'var(--bg2)', border: '1px solid var(--warn)',
-      borderRadius: 8, padding: 20,
+      padding: 20,
       boxShadow: '0 0 20px rgba(245,158,11,0.06)',
       animation: 'fadeUp 0.25s ease both',
     }}>
@@ -58,7 +58,7 @@ export function PendingCard({ trade, onDone }: Props) {
           onClick={() => handle('approve')}
           disabled={!!loading}
           style={{
-            flex: 1, padding: '9px 0', borderRadius: 5,
+            flex: 1, padding: '9px 0',
             background: loading === 'approve' ? 'var(--border2)' : 'rgba(34,197,94,0.15)',
             color: 'var(--green)', border: '1px solid rgba(34,197,94,0.3)',
             fontWeight: 600, letterSpacing: '0.05em',
@@ -71,7 +71,7 @@ export function PendingCard({ trade, onDone }: Props) {
           onClick={() => handle('reject')}
           disabled={!!loading}
           style={{
-            flex: 1, padding: '9px 0', borderRadius: 5,
+            flex: 1, padding: '9px 0',
             background: loading === 'reject' ? 'var(--border2)' : 'rgba(255,77,109,0.1)',
             color: 'var(--danger)', border: '1px solid rgba(255,77,109,0.2)',
             fontWeight: 600, letterSpacing: '0.05em',

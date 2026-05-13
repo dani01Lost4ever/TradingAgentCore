@@ -29,7 +29,7 @@ export function Login({ onLogin, onBack }: LoginProps) {
     boxSizing: 'border-box',
     background: 'var(--bg3)',
     border: '1px solid var(--border2)',
-    borderRadius: 6,
+    borderRadius: 0,
     color: 'var(--text)',
     fontFamily: 'var(--font-mono)',
     fontSize: 13,
@@ -99,12 +99,12 @@ export function Login({ onLogin, onBack }: LoginProps) {
   const in2faStep = Boolean(pending2faToken)
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
-      <div style={{ width: 390, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: '32px 28px' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg1, var(--bg))' }}>
+      <div style={{ width: 390, background: 'var(--bg2)', border: '1px solid var(--border)', padding: '32px 28px' }}>
         <div style={{ textAlign: 'center', marginBottom: 26 }}>
-          <span style={{ fontSize: 28, color: 'var(--accent)' }}>◆</span>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 700, color: 'var(--text)', letterSpacing: '0.06em', marginTop: 8 }}>
-            TRADING<span style={{ color: 'var(--accent)' }}>AGENT</span>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color: 'var(--accent)', letterSpacing: '-0.03em' }}>AURORA</span>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 700, color: 'var(--text)', letterSpacing: '0.06em', marginTop: 6 }}>
+            TRADING<span style={{ color: 'var(--accent)' }}>AI</span>
           </div>
           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--muted)', marginTop: 4, letterSpacing: '0.08em' }}>
             {in2faStep ? 'TWO-FACTOR VERIFICATION' : mode === 'register' ? 'CREATE ACCOUNT' : 'SECURE LOGIN'}
@@ -121,7 +121,7 @@ export function Login({ onLogin, onBack }: LoginProps) {
                 background: mode === 'login' ? 'var(--accent)' : 'transparent',
                 color: mode === 'login' ? '#000' : 'var(--muted)',
                 border: '1px solid var(--border2)',
-                borderRadius: 6,
+                borderRadius: 0,
                 fontFamily: 'var(--font-mono)',
                 fontSize: 10,
                 letterSpacing: '0.08em',
@@ -137,7 +137,7 @@ export function Login({ onLogin, onBack }: LoginProps) {
                 background: mode === 'register' ? 'var(--accent)' : 'transparent',
                 color: mode === 'register' ? '#000' : 'var(--muted)',
                 border: '1px solid var(--border2)',
-                borderRadius: 6,
+                borderRadius: 0,
                 fontFamily: 'var(--font-mono)',
                 fontSize: 10,
                 letterSpacing: '0.08em',
@@ -173,7 +173,7 @@ export function Login({ onLogin, onBack }: LoginProps) {
                 background: 'var(--accent)',
                 color: '#000',
                 border: 'none',
-                borderRadius: 6,
+                borderRadius: 0,
                 fontFamily: 'var(--font-mono)',
                 fontSize: 12,
                 fontWeight: 700,
@@ -199,7 +199,7 @@ export function Login({ onLogin, onBack }: LoginProps) {
                 background: 'var(--accent)',
                 color: '#000',
                 border: 'none',
-                borderRadius: 6,
+                borderRadius: 0,
                 fontFamily: 'var(--font-mono)',
                 fontSize: 12,
                 fontWeight: 700,
@@ -218,7 +218,7 @@ export function Login({ onLogin, onBack }: LoginProps) {
                 background: 'transparent',
                 color: 'var(--muted)',
                 border: '1px solid var(--border2)',
-                borderRadius: 6,
+                borderRadius: 0,
                 fontFamily: 'var(--font-mono)',
                 fontSize: 10,
                 letterSpacing: '0.08em',
@@ -237,7 +237,6 @@ export function Login({ onLogin, onBack }: LoginProps) {
             color: error ? 'var(--danger)' : 'var(--green)',
             background: error ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.1)',
             border: error ? '1px solid rgba(239,68,68,0.3)' : '1px solid rgba(34,197,94,0.3)',
-            borderRadius: 4,
             padding: '8px 12px',
           }}>
             {error || notice}
@@ -262,7 +261,6 @@ export function Login({ onLogin, onBack }: LoginProps) {
               background: 'transparent',
               color: 'var(--muted)',
               border: '1px solid var(--border2)',
-              borderRadius: 6,
               fontFamily: 'var(--font-mono)',
               fontSize: 10,
               letterSpacing: '0.08em',

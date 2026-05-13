@@ -1,5 +1,4 @@
 
-
 interface Props {
   label: string
   value: string | number
@@ -8,16 +7,36 @@ interface Props {
   mono?: boolean
 }
 
+function isAuroraDark(): boolean {
+  return document.documentElement.getAttribute('data-theme') === 'aurora-dark'
+}
+
 export function StatCard({ label, value, sub, accent, mono }: Props) {
-  const color = accent
-    ? `var(--${accent})`
-    : 'var(--text)'
+  const color = accent ? `var(--${accent})` : 'var(--text)'
+
+  if (isAuroraDark()) {
+    return (
+      <div className="aurora-stat-cell aurora-fade-2">
+        <div className="aurora-stat-label">{label}</div>
+        <div
+          className="aurora-stat-val aurora-tnum"
+          style={{ color }}
+        >
+          {value}
+        </div>
+        {sub && (
+          <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.6rem', color: 'var(--muted)', marginTop: 4 }}>
+            {sub}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div style={{
       background: 'var(--bg2)',
       border: '1px solid var(--border)',
-      borderRadius: 6,
       padding: '18px 22px',
       display: 'flex',
       flexDirection: 'column',

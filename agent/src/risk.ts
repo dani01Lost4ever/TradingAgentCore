@@ -1,8 +1,30 @@
-import { TradeModel, EquityModel, AssetSnapshot, PositionHighModel } from './schema'
+import { TradeModel, EquityModel, AssetSnapshot, PositionHighModel, WalletModel } from './schema'
 import { AgentConfig, getConfig } from './config'
 import { markExecuted } from './logger'
 import type { ExchangeAdapter } from './exchanges'
 import type { Portfolio } from './exchanges/adapter'
+import { computeNetPnL, type FeeModel } from './costs'
+
+/** Default pass-through fee model (zero fees, zero tax) used when wallet not found. */
+const DEFAULT_FEE_MODEL: FeeModel = { kind: 'percent', value: 0, minFee: 0 }
+
+async function getWalletCostConfig(walletId?: string): Promise<{ feeModel: FeeModel; taxRatePct: number }> {
+  if (!walletId) return { feeModel: DEFAULT_FEE_MODEL, taxRatePct: 0 }
+  try {
+    const wallet = await WalletModel.findById(walletId).lean()
+    if (!wallet) return { feeModel: DEFAULT_FEE_MODEL, taxRatePct: 0 }
+    return {
+      feeModel: {
+        kind: (wallet.feeModel?.kind ?? 'percent') as 'percent' | 'flat',
+        value: wallet.feeModel?.value ?? 0,
+        minFee: wallet.feeModel?.minFee ?? 0,
+      },
+      taxRatePct: wallet.taxRatePct ?? 26,
+    }
+  } catch {
+    return { feeModel: DEFAULT_FEE_MODEL, taxRatePct: 0 }
+  }
+}
 
 // High-correlation groups — avoid trading multiple from same group per cycle
 const CORRELATION_GROUPS: string[][] = [

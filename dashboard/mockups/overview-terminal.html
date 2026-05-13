@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AURORA-1 // TRADING TERMINAL</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+/* ── PALETTE ──────────────────────────────────────────────── */
+:root {
+  --bg:        #0A0A06;
+  --bg2:       #0E0E08;
+  --amber:     #FFB000;
+  --amber-dim: #B07A00;
+  --amber-faint:#4A3300;
+  --green:     #00FF7F;
+  --red:       #FF4040;
+  --cyan:      #56C7C7;
+  --white:     #D4C89A;
+  --border:    #3A2800;
+  --glow:      0 0 6px rgba(255,176,0,0.55);
+  --glow-green:0 0 5px rgba(0,255,127,0.5);
+  --glow-red:  0 0 5px rgba(255,64,64,0.5);
+  --font:      'IBM Plex Mono', 'JetBrains Mono', 'Courier New', monospace;
+}
+
+/* ── RESET & BASE ─────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--bg);
+  color: var(--amber);
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 1.45;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* CRT vignette */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(ellipse at center,
+    transparent 55%,
+    rgba(0,0,0,0.72) 100%);
+  pointer-events: none;
+  z-index: 999;
+}
+
+/* Scanlines overlay */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 2px,
+    rgba(0,0,0,0.18) 2px,
+    rgba(0,0,0,0.18) 4px
+  );
+  pointer-events: none;
+  z-index: 998;
+}
+
+/* Subtle phosphor horizontal scan animation */
+@keyframes scan {
+  0%   { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+.scanbar {
+  position: fixed;
+  left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(to bottom,
+    transparent,
+    rgba(255,176,0,0.04) 50%,
+    transparent);
+  pointer-events: none;
+  z-index: 997;
+  animation: scan 8s linear infinite;
+}
+
+/* ── TYPOGRAPHY UTILS ─────────────────────────────────────── */
+.amber     { color: var(--amber);     text-shadow: var(--glow); }
+.amber-dim { color: var(--amber-dim); }
+.green     { color: var(--green);     text-shadow: var(--glow-green); }
+.red       { color: var(--red);       text-shadow: var(--glow-red); }
+.cyan      { color: var(--cyan); }
+.white     { color: var(--white); }
+.bold      { font-weight: 700; }
+.faint     { color: var(--amber-faint); }
+
+/* ── ASCII BOX BORDERS ────────────────────────────────────── */
+.box {
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  position: relative;
+}
+.box-amber { border-color: var(--amber-dim); }
+
+/* ── LAYOUT ───────────────────────────────────────────────── */
+#app {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 6px 24px 6px;
+}
+
+/* ── TOP STATUS BAR ───────────────────────────────────────── */
+#status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--amber-dim);
+  background: var(--bg2);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+}
+#status-bar .left { color: var(--amber); text-shadow: var(--glow); font-weight: 600; }
+#status-bar .right { color: var(--amber-dim); }
+
+@keyframes blink-dot {
+  0%,49%  { opacity: 1; }
+  50%,100%{ opacity: 0; }
+}
+.blink-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  background: var(--green);
+  box-shadow: var(--glow-green);
+  animation: blink-dot 1.1s step-end infinite;
+  vertical-align: middle;
+  margin-right: 5px;
+}
+
+/* ── WALLET HEADER ────────────────────────────────────────── */
+#wallet-header {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+#wallet-header .label { color: var(--amber-dim); }
+#wallet-header .val   { color: var(--amber); text-shadow: var(--glow); font-weight: 600; }
+
+@keyframes blink-cursor {
+  0%,49%  { opacity: 1; }
+  50%,100%{ opacity: 0; }
+}
+.cursor-blink {
+  color: var(--amber);
+  text-shadow: var(--glow);
+  animation: blink-cursor 1s step-end infinite;
+  font-weight: 700;
+}
+
+/* ── MAIN GRID ────────────────────────────────────────────── */
+#main-grid {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  grid-template-rows: auto;
+  gap: 0;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+/* Left column */
+#left-col {
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Right column */
+#right-col {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── SECTION HEADER ───────────────────────────────────────── */
+.sec-head {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--amber-dim);
+  letter-spacing: 0.12em;
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--border);
+  background: #0C0C07;
+  text-transform: uppercase;
+}
+
+/* ── BIG EQUITY PANEL ─────────────────────────────────────── */
+#equity-panel {
+  padding: 12px 16px 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+#equity-panel .eq-label {
+  font-size: 10px;
+  color: var(--amber-dim);
+  letter-spacing: 0.1em;
+  margin-bottom: 2px;
+}
+#equity-panel .eq-number {
+  font-size: 38px;
+  font-weight: 700;
+  color: var(--amber);
+  text-shadow: 0 0 14px rgba(255,176,0,0.6), 0 0 3px rgba(255,176,0,0.9);
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+#equity-panel .eq-change {
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 4px;
+}
+#equity-panel .eq-meta {
+  font-size: 10px;
+  color: var(--amber-dim);
+  margin-top: 3px;
+}
+.eq-rule {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 8px 0 0 0;
+}
+
+/* ── STAT GRID ────────────────────────────────────────────── */
+#stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid var(--border);
+}
+.stat-cell {
+  padding: 7px 10px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.stat-cell:nth-child(2n) { border-right: none; }
+.stat-cell:nth-last-child(-n+2) { border-bottom: none; }
+.stat-cell .s-label {
+  font-size: 9px;
+  color: var(--amber-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 2px;
+}
+.stat-cell .s-val {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--amber);
+  text-shadow: var(--glow);
+  letter-spacing: 0.02em;
+}
+.stat-cell.full {
+  grid-column: 1 / -1;
+  border-right: none;
+}
+
+/* ── PENDING BANNER ───────────────────────────────────────── */
+#pending-banner {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--amber-dim);
+  border-top: 1px solid var(--amber-dim);
+  background: rgba(255,176,0,0.04);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-align: center;
+  color: var(--amber);
+  text-shadow: var(--glow);
+}
+@keyframes pulse-banner {
+  0%,100% { background: rgba(255,176,0,0.04); }
+  50%     { background: rgba(255,176,0,0.09); }
+}
+#pending-banner { animation: pulse-banner 2s ease-in-out infinite; }
+
+/* ── POSITIONS TABLE ──────────────────────────────────────── */
+#positions-wrap {
+  padding: 0 0 0 0;
+  border-bottom: 1px solid var(--border);
+}
+.tbl-rule {
+  font-size: 10px;
+  color: var(--amber-dim);
+  padding: 0 8px;
+  letter-spacing: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  user-select: none;
+}
+.tbl-rule.double { color: var(--amber-dim); }
+.pos-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.pos-table th {
+  text-align: right;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--amber-dim);
+  letter-spacing: 0.07em;
+  padding: 2px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.pos-table th:first-child { text-align: left; }
+.pos-table td {
+  text-align: right;
+  padding: 3px 8px;
+  color: var(--white);
+  border-bottom: 1px solid var(--amber-faint);
+}
+.pos-table td:first-child { text-align: left; color: var(--amber); font-weight: 600; }
+.pos-table tr:last-child td { border-bottom: none; }
+.pos-table .side-long  { color: var(--green); font-weight: 600; font-size: 9px; }
+.pos-table .side-short { color: var(--red);   font-weight: 600; font-size: 9px; }
+
+/* ── EQUITY CURVE / DRAWDOWN ──────────────────────────────── */
+#charts-wrap {
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+}
+.chart-area {
+  padding: 8px 10px 4px 10px;
+}
+.chart-area svg { display: block; overflow: visible; }
+
+/* ── PER-ASSET P&L ────────────────────────────────────────── */
+#perasset-wrap {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.asset-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 11px;
+}
+.asset-sym {
+  width: 48px;
+  color: var(--amber);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.asset-bar-text {
+  color: var(--green);
+  letter-spacing: -0.01em;
+  font-size: 11px;
+  min-width: 80px;
+}
+.asset-bar-text.neg { color: var(--red); }
+.asset-pct {
+  width: 40px;
+  text-align: right;
+  color: var(--amber-dim);
+  font-size: 10px;
+}
+.asset-bar-svg { flex: 1; }
+
+/* ── DECISION LOG ─────────────────────────────────────────── */
+#dec-log-wrap {
+  border-bottom: 1px solid var(--border);
+}
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+.log-table th {
+  text-align: left;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--amber-dim);
+  letter-spacing: 0.07em;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.log-table th:nth-child(n+4) { text-align: right; }
+.log-table td {
+  padding: 2px 6px;
+  color: var(--white);
+  border-bottom: 1px solid var(--amber-faint);
+  vertical-align: middle;
+}
+.log-table tr:last-child td { border-bottom: none; }
+.log-table td:nth-child(n+4) { text-align: right; }
+.act-buy  { color: var(--green); font-weight: 700; text-shadow: var(--glow-green); }
+.act-sell { color: var(--red);   font-weight: 700; text-shadow: var(--glow-red); }
+.act-hold { color: var(--amber-dim); }
+.st-executed { color: var(--green); font-size: 9px; }
+.st-pending  { color: var(--amber); font-size: 9px; }
+.st-failed   { color: var(--red);   font-size: 9px; }
+
+/* ── LIVE LOG FEED ────────────────────────────────────────── */
+#live-log {
+  font-size: 10px;
+  padding: 6px 10px 8px 10px;
+  min-height: 102px;
+  max-height: 120px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.log-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-ts   { color: var(--amber-dim); }
+.log-info { color: var(--cyan); }
+.log-warn { color: var(--amber); text-shadow: var(--glow); }
+.log-ok   { color: var(--green); }
+.log-err  { color: var(--red); }
+.log-dbg  { color: var(--amber-faint); }
+
+/* ── FULL-WIDTH ROWS ──────────────────────────────────────── */
+.full-row {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── MISC ─────────────────────────────────────────────────── */
+pre { font-family: var(--font); }
+</style>
+</head>
+<body>
+<div class="scanbar"></div>
+
+<div id="app">
+
+<!-- ══ TOP STATUS BAR ══════════════════════════════════════════ -->
+<div id="status-bar">
+  <div class="left">
+    <span class="blink-dot"></span>
+    AURORA&#x2011;1&nbsp;::&nbsp;TRADING&nbsp;TERMINAL&nbsp;::&nbsp;<span id="clock">24-DEC-2026 18:42:13 GMT</span>
+  </div>
+  <div class="right">
+    NET&nbsp;LATENCY&nbsp;<span class="amber">28ms</span>&nbsp;&nbsp;|&nbsp;&nbsp;
+    FEED&nbsp;<span class="green">LIVE</span>&nbsp;&nbsp;|&nbsp;&nbsp;
+    BUILD&nbsp;<span class="amber-dim">v2.9.1</span>
+  </div>
+</div>
+
+<!-- ══ WALLET HEADER ══════════════════════════════════════════ -->
+<div id="wallet-header">
+  <span>
+    <span class="label">WALLET:</span>&nbsp;
+    <span class="val">LongTerm/IBKR/LIVE</span>
+  </span>
+  <span>
+    <span class="label">MODE:</span>&nbsp;
+    <span class="val">LONG_TERM</span>
+  </span>
+  <span>
+    <span class="label">CYCLE:</span>&nbsp;
+    <span class="val">720m</span>
+  </span>
+  <span>
+    <span class="label">STRATEGY:</span>&nbsp;
+    <span class="val">MOMENTUM+ML</span>
+  </span>
+  <span>
+    <span class="label">BROKER:</span>&nbsp;
+    <span class="val cyan">IBKR</span>
+  </span>
+  <span class="cursor-blink">&#x258C;</span>
+</div>
+
+<!-- ══ MAIN GRID ═══════════════════════════════════════════════ -->
+<div id="main-grid">
+
+  <!-- ─── LEFT COLUMN ─────────────────────────────────────── -->
+  <div id="left-col">
+
+    <!-- BIG EQUITY -->
+    <div class="sec-head">// EQUITY :: PORTFOLIO VALUE</div>
+    <div id="equity-panel">
+      <div class="eq-label">[ TOTAL EQUITY ]</div>
+      <div class="eq-number">$124,837.42</div>
+      <div class="eq-change green">▲ +$1,204.18 &nbsp;(+0.97%)</div>
+      <div class="eq-meta">vs PREV CLOSE 123,633.24 &nbsp;|&nbsp; PEAK 128,442.00 &nbsp;|&nbsp; SINCE 01-JAN-2026</div>
+      <hr class="eq-rule">
+    </div>
+
+    <!-- STAT GRID -->
+    <div class="sec-head">// STATS :: CYCLE SUMMARY</div>
+    <div id="stat-grid">
+      <div class="stat-cell">
+        <div class="s-label">DECISIONS</div>
+        <div class="s-val">1,247</div>
+      </div>
+      <div class="stat-cell">
+        <div class="s-label">EXECUTED</div>
+        <div class="s-val">412</div>
+      </div>
+      <div class="stat-cell">
+        <div class="s-label">WIN RATE</div>
+        <div class="s-val green">64.8%</div>
+      </div>
+      <div class="stat-cell">
+        <div class="s-label">OPEN POS</div>
+        <div class="s-val amber">4 / 6</div>
+      </div>
+      <div class="stat-cell full">
+        <div class="s-label">NET P&amp;L (CYCLE)</div>
+        <div class="s-val green">+$2,317.55</div>
+      </div>
+    </div>
+
+    <!-- PENDING BANNER -->
+    <div id="pending-banner">
+      &gt;&gt; PENDING APPROVAL [1] :: NVDA &middot; BUY &middot; $850.00 &middot; CONF 0.72 &lt;&lt;
+    </div>
+
+    <!-- POSITIONS TABLE -->
+    <div id="positions-wrap">
+      <div class="sec-head">// OPEN POSITIONS :: 4 ACTIVE</div>
+      <div class="tbl-rule double">
+        <span class="amber-dim">&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;</span>
+      </div>
+      <table class="pos-table">
+        <thead>
+          <tr>
+            <th>SYM</th>
+            <th>SIDE</th>
+            <th>QTY</th>
+            <th>ENTRY</th>
+            <th>LAST</th>
+            <th>P&amp;L</th>
+            <th>P&amp;L%</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>AAPL</td>
+            <td><span class="side-long">LONG</span></td>
+            <td>40</td>
+            <td>218.40</td>
+            <td>224.82</td>
+            <td class="green">+256.80</td>
+            <td class="green">+2.94%</td>
+          </tr>
+          <tr>
+            <td>MSFT</td>
+            <td><span class="side-long">LONG</span></td>
+            <td>18</td>
+            <td>412.70</td>
+            <td>408.15</td>
+            <td class="red">&#x2212;81.90</td>
+            <td class="red">&#x2212;1.10%</td>
+          </tr>
+          <tr>
+            <td>NVDA</td>
+            <td><span class="side-long">LONG</span></td>
+            <td>12</td>
+            <td>804.30</td>
+            <td>851.60</td>
+            <td class="green">+567.60</td>
+            <td class="green">+5.88%</td>
+          </tr>
+          <tr>
+            <td>SPY</td>
+            <td><span class="side-short">SHORT</span></td>
+            <td>25</td>
+            <td>589.00</td>
+            <td>582.44</td>
+            <td class="green">+164.00</td>
+            <td class="green">+1.11%</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="tbl-rule double">
+        <span class="amber-dim">&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;&#x2550;</span>
+      </div>
+    </div>
+
+    <!-- PER-ASSET P&L -->
+    <div class="sec-head">// PER-ASSET :: P&amp;L + WIN RATE</div>
+    <div id="perasset-wrap">
+      <!-- Text block bars for win rate -->
+      <div style="font-size:9px;color:var(--amber-dim);margin-bottom:4px;letter-spacing:0.06em;">WIN RATE HISTOGRAM (text)</div>
+      <div class="asset-row">
+        <span class="asset-sym">AAPL</span>
+        <span class="asset-bar-text">&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;</span>
+        <span class="asset-pct">71.4%</span>
+      </div>
+      <div class="asset-row">
+        <span class="asset-sym">MSFT</span>
+        <span class="asset-bar-text">&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;</span>
+        <span class="asset-pct">58.3%</span>
+      </div>
+      <div class="asset-row">
+        <span class="asset-sym">NVDA</span>
+        <span class="asset-bar-text">&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;</span>
+        <span class="asset-pct">78.6%</span>
+      </div>
+      <div class="asset-row">
+        <span class="asset-sym">SPY</span>
+        <span class="asset-bar-text">&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;</span>
+        <span class="asset-pct">62.5%</span>
+      </div>
+      <div class="asset-row">
+        <span class="asset-sym">AMZN</span>
+        <span class="asset-bar-text neg">&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;&#x2588;</span>
+        <span class="asset-pct">44.4%</span>
+      </div>
+
+      <div style="font-size:9px;color:var(--amber-dim);margin:8px 0 4px 0;letter-spacing:0.06em;">NET P&amp;L BY ASSET (SVG)</div>
+      <svg width="100%" height="68" viewBox="0 0 290 68" preserveAspectRatio="none">
+        <defs>
+          <filter id="glow-g">
+            <feGaussianBlur stdDeviation="1.5" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <filter id="glow-r">
+            <feGaussianBlur stdDeviation="1.5" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+        <!-- zero line -->
+        <line x1="58" y1="34" x2="290" y2="34" stroke="#3A2800" stroke-width="1"/>
+        <!-- AAPL +256 -->
+        <rect x="60"  y="14" width="42" height="20" fill="#00FF7F" opacity="0.75" filter="url(#glow-g)"/>
+        <text x="79"  y="10" fill="#00FF7F" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="middle">+257</text>
+        <!-- MSFT -81 -->
+        <rect x="110" y="34" width="42" height="6" fill="#FF4040" opacity="0.75" filter="url(#glow-r)"/>
+        <text x="129" y="50" fill="#FF4040" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="middle">-82</text>
+        <!-- NVDA +567 -->
+        <rect x="160" y="3" width="42" height="31" fill="#00FF7F" opacity="0.75" filter="url(#glow-g)"/>
+        <text x="179"  y="0" fill="#00FF7F" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="middle">+568</text>
+        <!-- SPY +164 -->
+        <rect x="210" y="22" width="42" height="12" fill="#00FF7F" opacity="0.75" filter="url(#glow-g)"/>
+        <text x="229" y="18" fill="#00FF7F" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="middle">+164</text>
+        <!-- AMZN -143 -->
+        <rect x="260" y="34" width="28" height="11" fill="#FF4040" opacity="0.75" filter="url(#glow-r)"/>
+        <text x="274" y="56" fill="#FF4040" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="middle">-143</text>
+        <!-- labels -->
+        <text x="55"  y="38" fill="#B07A00" font-size="8" font-family="IBM Plex Mono,monospace" text-anchor="end">AAPL</text>
+        <text x="129" y="38" fill="#B07A00" font-size="8" font-family="IBM Plex Mono,monospace" text-anchor="middle">MSFT</text>
+        <text x="179"  y="40" fill="#B07A00" font-size="8" font-family="IBM Plex Mono,monospace" text-anchor="middle">NVDA</text>
+        <text x="229" y="40" fill="#B07A00" font-size="8" font-family="IBM Plex Mono,monospace" text-anchor="middle">SPY</text>
+        <text x="274" y="40" fill="#B07A00" font-size="8" font-family="IBM Plex Mono,monospace" text-anchor="middle">AMZN</text>
+      </svg>
+    </div>
+
+  </div><!-- /left-col -->
+
+  <!-- ─── RIGHT COLUMN ─────────────────────────────────────── -->
+  <div id="right-col">
+
+    <!-- EQUITY CURVE + DRAWDOWN -->
+    <div class="sec-head">// EQUITY CURVE :: 90-DAY + DRAWDOWN</div>
+    <div id="charts-wrap">
+      <div class="chart-area">
+        <!-- EQUITY CURVE -->
+        <div style="font-size:9px;color:var(--amber-dim);letter-spacing:0.07em;margin-bottom:3px;">[ EQUITY CURVE ]</div>
+        <svg width="100%" height="140" viewBox="0 0 780 140" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="eq-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stop-color="#FFB000" stop-opacity="0.08"/>
+              <stop offset="100%" stop-color="#FFB000" stop-opacity="0"/>
+            </linearGradient>
+            <filter id="amber-glow">
+              <feGaussianBlur stdDeviation="2" result="blur"/>
+              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+          <!-- Grid lines -->
+          <line x1="40" y1="10"  x2="780" y2="10"  stroke="#2A1E00" stroke-width="1"/>
+          <line x1="40" y1="37"  x2="780" y2="37"  stroke="#2A1E00" stroke-width="1"/>
+          <line x1="40" y1="64"  x2="780" y2="64"  stroke="#3A2800" stroke-width="1" stroke-dasharray="3,3"/>
+          <line x1="40" y1="91"  x2="780" y2="91"  stroke="#2A1E00" stroke-width="1"/>
+          <line x1="40" y1="118" x2="780" y2="118" stroke="#2A1E00" stroke-width="1"/>
+          <!-- Vertical grid -->
+          <line x1="40"  y1="10" x2="40"  y2="118" stroke="#3A2800" stroke-width="1"/>
+          <line x1="153" y1="10" x2="153" y2="118" stroke="#2A1E00" stroke-width="1" stroke-dasharray="2,4"/>
+          <line x1="266" y1="10" x2="266" y2="118" stroke="#2A1E00" stroke-width="1" stroke-dasharray="2,4"/>
+          <line x1="379" y1="10" x2="379" y2="118" stroke="#2A1E00" stroke-width="1" stroke-dasharray="2,4"/>
+          <line x1="492" y1="10" x2="492" y2="118" stroke="#2A1E00" stroke-width="1" stroke-dasharray="2,4"/>
+          <line x1="605" y1="10" x2="605" y2="118" stroke="#2A1E00" stroke-width="1" stroke-dasharray="2,4"/>
+          <line x1="718" y1="10" x2="718" y2="118" stroke="#2A1E00" stroke-width="1" stroke-dasharray="2,4"/>
+          <!-- Axis labels Y -->
+          <text x="36" y="13"  fill="#B07A00" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="end">128k</text>
+          <text x="36" y="40"  fill="#B07A00" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="end">126k</text>
+          <text x="36" y="67"  fill="#B07A00" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="end">124k</text>
+          <text x="36" y="94"  fill="#B07A00" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="end">122k</text>
+          <text x="36" y="121" fill="#B07A00" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="end">120k</text>
+          <!-- X-axis date labels -->
+          <text x="40"  y="132" fill="#4A3300" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="middle">25-SEP</text>
+          <text x="153" y="132" fill="#4A3300" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="middle">08-OCT</text>
+          <text x="266" y="132" fill="#4A3300" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="middle">21-OCT</text>
+          <text x="379" y="132" fill="#4A3300" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="middle">04-NOV</text>
+          <text x="492" y="132" fill="#4A3300" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="middle">17-NOV</text>
+          <text x="605" y="132" fill="#4A3300" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="middle">01-DEC</text>
+          <text x="718" y="132" fill="#4A3300" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="middle">15-DEC</text>
+          <!-- Fill area under curve -->
+          <polygon
+            points="40,118 60,112 80,108 100,105 120,107 140,103 160,100 180,96 200,100 220,104 240,98 260,90 280,86 300,88 320,82 340,78 360,81 380,75 400,70 420,68 440,72 460,65 480,58 500,54 520,57 540,52 560,48 580,44 600,46 620,40 640,37 660,42 680,36 700,30 720,25 740,22 760,18 780,15 780,118"
+            fill="url(#eq-fill)"/>
+          <!-- Equity line -->
+          <polyline
+            points="40,118 60,112 80,108 100,105 120,107 140,103 160,100 180,96 200,100 220,104 240,98 260,90 280,86 300,88 320,82 340,78 360,81 380,75 400,70 420,68 440,72 460,65 480,58 500,54 520,57 540,52 560,48 580,44 600,46 620,40 640,37 660,42 680,36 700,30 720,25 740,22 760,18 780,15"
+            fill="none" stroke="#FFB000" stroke-width="1.5" filter="url(#amber-glow)"/>
+          <!-- Current price dot -->
+          <circle cx="780" cy="15" r="3" fill="#FFB000" filter="url(#amber-glow)"/>
+        </svg>
+        <!-- DRAWDOWN -->
+        <div style="font-size:9px;color:var(--amber-dim);letter-spacing:0.07em;margin:6px 0 3px 0;">[ DRAWDOWN ]</div>
+        <svg width="100%" height="60" viewBox="0 0 780 60" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="dd-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stop-color="#FF4040" stop-opacity="0.25"/>
+              <stop offset="100%" stop-color="#FF4040" stop-opacity="0.03"/>
+            </linearGradient>
+          </defs>
+          <!-- Grid -->
+          <line x1="40" y1="10" x2="780" y2="10" stroke="#2A1E00" stroke-width="1"/>
+          <line x1="40" y1="30" x2="780" y2="30" stroke="#2A1E00" stroke-width="1" stroke-dasharray="3,3"/>
+          <line x1="40" y1="50" x2="780" y2="50" stroke="#2A1E00" stroke-width="1"/>
+          <line x1="40" y1="10" x2="40" y2="50" stroke="#3A2800" stroke-width="1"/>
+          <!-- Y labels -->
+          <text x="36" y="13"  fill="#B07A00" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="end">0%</text>
+          <text x="36" y="32"  fill="#B07A00" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="end">-5%</text>
+          <text x="36" y="52"  fill="#B07A00" font-size="7" font-family="IBM Plex Mono,monospace" text-anchor="end">-10%</text>
+          <!-- Drawdown fill -->
+          <polygon
+            points="40,10 60,11 80,12 100,14 120,13 140,16 160,17 180,18 200,15 220,12 240,18 260,22 280,24 300,22 320,20 340,18 360,19 380,17 400,14 420,12 440,15 460,11 480,10 500,10 520,11 540,10 560,10 580,10 600,11 620,10 640,10 660,12 680,10 700,10 720,10 740,10 760,10 780,10 780,50 40,50"
+            fill="url(#dd-fill)"/>
+          <polyline
+            points="40,10 60,11 80,12 100,14 120,13 140,16 160,17 180,18 200,15 220,12 240,18 260,22 280,24 300,22 320,20 340,18 360,19 380,17 400,14 420,12 440,15 460,11 480,10 500,10 520,11 540,10 560,10 580,10 600,11 620,10 640,10 660,12 680,10 700,10 720,10 740,10 760,10 780,10"
+            fill="none" stroke="#FF4040" stroke-width="1" opacity="0.7"/>
+          <!-- Max DD annotation -->
+          <line x1="280" y1="10" x2="280" y2="24" stroke="#FF4040" stroke-width="1" stroke-dasharray="2,2" opacity="0.5"/>
+          <text x="285" y="21" fill="#FF4040" font-size="7" font-family="IBM Plex Mono,monospace">MAX -4.18%</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- DECISION LOG -->
+    <div id="dec-log-wrap">
+      <div class="sec-head">// DECISION LOG :: LAST 10 ENTRIES</div>
+      <table class="log-table">
+        <thead>
+          <tr>
+            <th>TIME (GMT)</th>
+            <th>ACTION</th>
+            <th>ASSET</th>
+            <th>STRATEGY</th>
+            <th>NET P&amp;L</th>
+            <th>STATUS</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="amber-dim">18:41:07</td>
+            <td><span class="act-buy">BUY</span></td>
+            <td class="amber">NVDA</td>
+            <td class="cyan">MOMENTUM</td>
+            <td class="green">+$0.00</td>
+            <td><span class="st-pending">[ PENDING ]</span></td>
+          </tr>
+          <tr>
+            <td class="amber-dim">17:52:33</td>
+            <td><span class="act-sell">SELL</span></td>
+            <td class="amber">AMZN</td>
+            <td class="cyan">MEAN-REV</td>
+            <td class="red">&#x2212;$143.20</td>
+            <td><span class="st-executed">[ EXECUTED ]</span></td>
+          </tr>
+          <tr>
+            <td class="amber-dim">17:14:02</td>
+            <td><span class="act-hold">HOLD</span></td>
+            <td class="amber">SPY</td>
+            <td class="cyan">MACRO-ML</td>
+            <td class="amber-dim">$0.00</td>
+            <td><span class="st-executed">[ EXECUTED ]</span></td>
+          </tr>
+          <tr>
+            <td class="amber-dim">16:30:58</td>
+            <td><span class="act-buy">BUY</span></td>
+            <td class="amber">AAPL</td>
+            <td class="cyan">MOMENTUM</td>
+            <td class="green">+$256.80</td>
+            <td><span class="st-executed">[ EXECUTED ]</span></td>
+          </tr>
+          <tr>
+            <td class="amber-dim">15:44:19</td>
+            <td><span class="act-sell">SELL</span></td>
+            <td class="amber">TSLA</td>
+            <td class="cyan">ML-SIGNAL</td>
+            <td class="green">+$318.40</td>
+            <td><span class="st-executed">[ EXECUTED ]</span></td>
+          </tr>
+          <tr>
+            <td class="amber-dim">14:22:45</td>
+            <td><span class="act-buy">BUY</span></td>
+            <td class="amber">MSFT</td>
+            <td class="cyan">BREAKOUT</td>
+            <td class="red">&#x2212;$81.90</td>
+            <td><span class="st-executed">[ EXECUTED ]</span></td>
+          </tr>
+          <tr>
+            <td class="amber-dim">13:07:11</td>
+            <td><span class="act-hold">HOLD</span></td>
+            <td class="amber">NVDA</td>
+            <td class="cyan">MEAN-REV</td>
+            <td class="amber-dim">$0.00</td>
+            <td><span class="st-executed">[ EXECUTED ]</span></td>
+          </tr>
+          <tr>
+            <td class="amber-dim">12:00:03</td>
+            <td><span class="act-sell">SELL</span></td>
+            <td class="amber">GLD</td>
+            <td class="cyan">MACRO-ML</td>
+            <td class="red">&#x2212;$52.00</td>
+            <td><span class="st-failed">[ FAILED ]</span></td>
+          </tr>
+          <tr>
+            <td class="amber-dim">10:45:29</td>
+            <td><span class="act-buy">BUY</span></td>
+            <td class="amber">SPY</td>
+            <td class="cyan">MOMENTUM</td>
+            <td class="green">+$164.00</td>
+            <td><span class="st-executed">[ EXECUTED ]</span></td>
+          </tr>
+          <tr>
+            <td class="amber-dim">09:31:08</td>
+            <td><span class="act-buy">BUY</span></td>
+            <td class="amber">AAPL</td>
+            <td class="cyan">OPEN-SCAN</td>
+            <td class="green">+$98.60</td>
+            <td><span class="st-executed">[ EXECUTED ]</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- LIVE LOG FEED -->
+    <div class="sec-head">// LIVE LOG :: SYSTEM FEED</div>
+    <div id="live-log">
+      <div class="log-line"><span class="log-ts">18:42:13</span> <span class="log-info">[INFO ]</span> <span class="white">CYCLE 720m STARTED :: WALLET=LongTerm/IBKR/LIVE</span></div>
+      <div class="log-line"><span class="log-ts">18:42:12</span> <span class="log-ok">[OK   ]</span> <span class="white">BROKER HANDSHAKE :: IBKR TWS CONNECTED :: port=7497</span></div>
+      <div class="log-line"><span class="log-ts">18:42:10</span> <span class="log-info">[INFO ]</span> <span class="white">MARKET DATA SNAPSHOT :: 5 SYMBOLS REFRESHED</span></div>
+      <div class="log-line"><span class="log-ts">18:41:58</span> <span class="log-warn">[WARN ]</span> <span class="amber">DECISION ENGINE :: NVDA conf=0.72 BELOW threshold=0.75 :: PENDING APPROVAL</span></div>
+      <div class="log-line"><span class="log-ts">18:41:07</span> <span class="log-info">[INFO ]</span> <span class="white">ORDER STAGED :: NVDA BUY qty=12 limit=851.60 :: awaiting_approval=true</span></div>
+      <div class="log-line"><span class="log-ts">18:40:44</span> <span class="log-dbg">[DEBUG]</span> <span class="faint">ML MODEL INFERENCE :: NVDA :: features=48 :: latency=14ms :: score=0.7201</span></div>
+    </div>
+
+  </div><!-- /right-col -->
+
+</div><!-- /main-grid -->
+
+<!-- ══ FULL-WIDTH FOOTER ═══════════════════════════════════════ -->
+<div style="border-top:1px solid var(--border); padding:3px 10px; font-size:9px; color:var(--amber-dim); display:flex; justify-content:space-between; background:var(--bg2);">
+  <span>AURORA-1 &nbsp;|&nbsp; ENGINE v2.9.1 &nbsp;|&nbsp; IBKR TWS 10.28 &nbsp;|&nbsp; DB LATENCY 4ms</span>
+  <span>&#x250C;&#x2500;&#x2500; SYSTEM NOMINAL &#x2500;&#x2500;&#x2510; &nbsp; CPU 8% &nbsp; MEM 1.2GB &nbsp; UPTIME 14d 07h</span>
+  <span>ALL TIMES GMT &nbsp;|&nbsp; THIS IS NOT FINANCIAL ADVICE</span>
+</div>
+
+</div><!-- /app -->
+
+<script>
+/* ── CLOCK ─────────────────────────────────────────────────── */
+(function() {
+  const el = document.getElementById('clock');
+  const days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  function pad(n) { return String(n).padStart(2,'0'); }
+  function tick() {
+    const now = new Date();
+    // offset to simulate 24-DEC-2026
+    const fake = new Date('2026-12-24T18:42:13Z');
+    const elapsed = Date.now() - tick._start;
+    const t = new Date(fake.getTime() + elapsed);
+    const d = pad(t.getUTCDate()) + '-' + months[t.getUTCMonth()] + '-' + t.getUTCFullYear();
+    const time = pad(t.getUTCHours()) + ':' + pad(t.getUTCMinutes()) + ':' + pad(t.getUTCSeconds());
+    el.textContent = d + ' ' + time + ' GMT';
+  }
+  tick._start = Date.now();
+  tick();
+  setInterval(tick, 1000);
+})();
+
+/* ── LIVE LOG AUTO-TICK ─────────────────────────────────────── */
+(function() {
+  const feed = document.getElementById('live-log');
+  const messages = [
+    ['INFO ', 'log-info',  'DECISION ENGINE :: MSFT :: HOLD :: conf=0.61'],
+    ['DEBUG', 'log-dbg',   'FEATURE PIPELINE :: AAPL :: 48 features computed :: 11ms'],
+    ['OK   ', 'log-ok',    'HEARTBEAT :: IBKR CONNECTION ALIVE :: seq=8821'],
+    ['INFO ', 'log-info',  'MARKET DATA :: SPY last=582.44 vol=3.2M delta=+0.12%'],
+    ['WARN ', 'log-warn',  'SLIPPAGE DETECTED :: SPY :: expected=582.44 filled=582.49'],
+    ['DEBUG', 'log-dbg',   'MODEL CACHE HIT :: NVDA :: reusing inference from -180s'],
+    ['INFO ', 'log-info',  'CYCLE PROGRESS :: 47min elapsed :: next_cycle=673min'],
+    ['OK   ', 'log-ok',    'RISK CHECK PASSED :: portfolio heat=62% :: below 80% limit'],
+    ['ERROR', 'log-err',   'DATA FEED STALE :: GLD :: last_update=4m32s ago'],
+    ['INFO ', 'log-info',  'POSITION MONITOR :: unrealised_total=+$906.50 :: 4 open'],
+  ];
+  let idx = 0;
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  function pad(n) { return String(n).padStart(2,'0'); }
+
+  setInterval(() => {
+    const fake = new Date('2026-12-24T18:42:13Z');
+    const elapsed = Date.now() - (window._logStart || (window._logStart = Date.now()));
+    const t = new Date(fake.getTime() + elapsed);
+    const ts = pad(t.getUTCHours()) + ':' + pad(t.getUTCMinutes()) + ':' + pad(t.getUTCSeconds());
+
+    const [level, cls, msg] = messages[idx % messages.length];
+    idx++;
+
+    const line = document.createElement('div');
+    line.className = 'log-line';
+    line.innerHTML = `<span class="log-ts">${ts}</span> <span class="${cls}">[${level}]</span> <span class="white">${msg}</span>`;
+    feed.appendChild(line);
+    // Keep only last 6 lines
+    while (feed.children.length > 6) feed.removeChild(feed.firstChild);
+  }, 4000);
+})();
+</script>
+</body>
+</html>

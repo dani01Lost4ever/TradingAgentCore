@@ -1,4 +1,112 @@
-import { ConfigModel } from './schema'
+import { ConfigModel, WalletModel } from './schema'
+
+export type TradingMode = 'scalp' | 'swing' | 'long_term'
+
+export const tradingModeDefaults: Record<TradingMode, {
+  cycleMinutes: number
+  assets: string[]
+  stopLossPct: number
+  takeProfitPct: number
+  maxOpenPositions: number
+  maxTradesPerDay: number
+  minHoldingMinutes: number
+  promptHint: string
+}> = {
+  scalp: {
+    cycleMinutes: 15,
+    assets: ['BTC/USD', 'ETH/USD', 'SOL/USD'],
+    stopLossPct: 2,
+    takeProfitPct: 4,
+    maxOpenPositions: 3,
+    maxTradesPerDay: 20,
+    minHoldingMinutes: 0,
+    promptHint: 'MODE GUIDANCE (scalp): trade short-term moves on crypto majors. Lean on RSI extremes, MACD hist sign changes, and BB %B excursions. Take positions at moderate confidence (0.4-0.65) — turnover absorbs occasional misses. Tight stops, quick exits.',
+  },
+  swing: {
+    cycleMinutes: 120,
+    assets: ['BTC/USD', 'ETH/USD'],
+    stopLossPct: 5,
+    takeProfitPct: 10,
+    maxOpenPositions: 4,
+    maxTradesPerDay: 6,
+    minHoldingMinutes: 240,
+    promptHint: 'MODE GUIDANCE (swing): hold positions for hours to a few days. Take a position when at least 2 of {RSI, EMA9/21 cross, MACD hist, BB %B} align with the regime. Moderate-to-high confidence (0.5-0.8) is the working range. Hold only when signals are truly mixed.',
+  },
+  long_term: {
+    cycleMinutes: 720,
+    assets: ['SPY', 'VOO', 'QQQ', 'AAPL', 'MSFT'],
+    stopLossPct: 15,
+    takeProfitPct: 30,
+    maxOpenPositions: 6,
+    maxTradesPerDay: 2,
+    minHoldingMinutes: 4320,
+    promptHint: 'MODE GUIDANCE (long_term): you manage a long-horizon portfolio on stocks/ETFs and major crypto. Make 1-2 decisive moves per day. When you see a clean technical setup on a quality name (e.g. RSI 45-65 AND EMA9>EMA21 AND price above SMA50 AND healthy volume) take a position at moderate-to-high confidence (0.55-0.75) — do NOT wait for perfection. You hold for days/weeks, so small entry-timing imperfections do not matter. Earnings/news catalysts are a plus but NOT required — you cannot see the earnings calendar; use technicals + sector regime as the primary signal.',
+  },
+}
+
+export interface EffectiveConfig extends AgentConfig {
+  tradingMode: TradingMode
+  minHoldingMinutes: number
+  maxTradesPerDay: number
+}
+
+export async function getEffectiveConfigForWallet(
+  userId: string,
+  walletId: string | undefined
+): Promise<EffectiveConfig> {
+  const base = await getUserConfig(userId)
+
+  // Determine trading mode (wallet wins if set, else default to swing)
+  let tradingMode: TradingMode = 'swing'
+  let walletCycleMinutes = 0
+  let walletAssets: string[] = []
+  let walletMaxTradesPerDay = 0
+  let walletMinHoldingMinutes = 0
+
+  if (walletId) {
+    const wallet = await WalletModel.findById(walletId).lean()
+    if (wallet) {
+      tradingMode = (wallet.tradingMode as TradingMode) || 'swing'
+      walletCycleMinutes = wallet.cycleMinutes ?? 0
+      walletAssets = wallet.assets ?? []
+      walletMaxTradesPerDay = wallet.maxTradesPerDay ?? 0
+      walletMinHoldingMinutes = wallet.minHoldingMinutes ?? 0
+    }
+  }
+
+  const modeDefaults = tradingModeDefaults[tradingMode]
+
+  // Merge order:
+  // 1. Start from user's global config (base)
+  // 2. Apply mode defaults for mode-specific fields
+  // 3. Wallet-specific non-zero/non-empty values override
+  const merged: EffectiveConfig = {
+    ...base,
+    tradingMode,
+    // cycleMinutes: wallet explicit > mode default > global config
+    cycleMinutes: walletCycleMinutes > 0
+      ? walletCycleMinutes
+      : modeDefaults.cycleMinutes,
+    // assets: wallet explicit > mode default (global config assets NOT used for mode trading)
+    assets: walletAssets.length > 0
+      ? walletAssets
+      : modeDefaults.assets,
+    // stopLossPct/takeProfitPct/maxOpenPositions: mode defaults win over global (unless global explicitly set)
+    stopLossPct: modeDefaults.stopLossPct,
+    takeProfitPct: modeDefaults.takeProfitPct,
+    maxOpenPositions: modeDefaults.maxOpenPositions,
+    // maxTradesPerDay: wallet explicit > mode default
+    maxTradesPerDay: walletMaxTradesPerDay > 0
+      ? walletMaxTradesPerDay
+      : modeDefaults.maxTradesPerDay,
+    // minHoldingMinutes: wallet explicit > mode default
+    minHoldingMinutes: walletMinHoldingMinutes > 0
+      ? walletMinHoldingMinutes
+      : modeDefaults.minHoldingMinutes,
+  }
+
+  return merged
+}
 
 export interface AgentConfig {
   autoApprove: boolean

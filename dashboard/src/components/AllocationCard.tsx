@@ -105,30 +105,34 @@ export function AllocationCard({ marketSnapshot }: { marketSnapshot?: Record<str
 
   const totalValue = rows.reduce((s, r) => s + r.value, 0)
 
+  const aurora = document.documentElement.getAttribute('data-theme') === 'aurora-dark'
+
   return (
     <div style={{
       background: 'var(--bg2)',
       border: '1px solid var(--border)',
-      borderRadius: 8,
-      padding: 20,
+      padding: aurora ? '20px 22px' : 20,
       marginBottom: 28,
     }}>
       {/* Header */}
-      <div style={{
-        fontFamily: 'var(--font-mono)',
-        fontSize: 11,
-        color: 'var(--muted)',
-        letterSpacing: '0.08em',
-        marginBottom: 16,
-      }}>
-        ALLOCATION SIZING
-      </div>
+      {aurora ? (
+        <div className="aurora-section-title">Allocation Sizing</div>
+      ) : (
+        <div style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 11,
+          color: 'var(--muted)',
+          letterSpacing: '0.08em',
+          marginBottom: 16,
+        }}>
+          ALLOCATION SIZING
+        </div>
+      )}
 
       {/* Stacked bar */}
       <div style={{
         display: 'flex',
-        height: 18,
-        borderRadius: 4,
+        height: aurora ? 6 : 18,
         overflow: 'hidden',
         marginBottom: 16,
         gap: 1,
@@ -167,21 +171,23 @@ export function AllocationCard({ marketSnapshot }: { marketSnapshot?: Record<str
 
       {/* Table */}
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+        <table className={aurora ? 'aurora-table' : undefined} style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11, fontFamily: 'var(--font-mono)' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)' }}>
               {['Asset', 'Value ($)', 'Allocation (%)', 'Kelly Size ($)', 'ATR Size ($)', 'Signal'].map(h => (
                 <th
                   key={h}
                   style={{
-                    padding: '6px 12px',
+                    padding: aurora ? '0 12px 10px 0' : '6px 12px',
                     textAlign: 'left',
-                    fontFamily: 'var(--font-mono)',
+                    fontFamily: aurora ? 'var(--font-sans)' : 'var(--font-mono)',
                     fontSize: 10,
                     color: 'var(--muted)',
-                    letterSpacing: '0.06em',
-                    fontWeight: 400,
+                    letterSpacing: aurora ? '0.11em' : '0.06em',
+                    fontWeight: aurora ? 600 : 400,
                     whiteSpace: 'nowrap',
+                    textTransform: 'uppercase',
+                    borderBottom: '1px solid var(--border)',
                   }}
                 >
                   {h}
@@ -219,7 +225,7 @@ export function AllocationCard({ marketSnapshot }: { marketSnapshot?: Record<str
                       ? `$${row.atrSizeUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
                       : '—'}
                   </td>
-                  <td style={{ padding: '7px 12px' }}>
+                  <td style={{ padding: aurora ? '10px 12px 10px 0' : '7px 12px' }}>
                     <span style={{
                       fontFamily: 'var(--font-mono)',
                       fontSize: 10,
@@ -227,8 +233,8 @@ export function AllocationCard({ marketSnapshot }: { marketSnapshot?: Record<str
                       color: signal.color,
                       background: signal.color + '1a',
                       padding: '2px 8px',
-                      borderRadius: 4,
-                      letterSpacing: '0.04em',
+                                    letterSpacing: '0.04em',
+                      border: aurora ? `1px solid ${signal.color}33` : 'none',
                     }}>
                       {signal.label}
                     </span>

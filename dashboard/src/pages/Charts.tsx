@@ -90,7 +90,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return (
     <div style={{
       background: 'var(--bg3)', border: '1px solid var(--border2)',
-      borderRadius: 6, padding: '10px 14px',
+      padding: '10px 14px',
       fontFamily: 'var(--font-mono)', fontSize: 11,
     }}>
       <div style={{ color: 'var(--muted)', marginBottom: 6 }}>{label}</div>
@@ -167,11 +167,11 @@ function AssetChart({ asset }: { asset: string }) {
     <button
       onClick={onToggle}
       style={{
-        padding: '3px 9px', borderRadius: 4, fontSize: 10,
+        padding: '3px 9px', borderRadius: 0, fontSize: 10,
         fontFamily: 'var(--font-mono)',
-        background: active ? 'rgba(var(--accent-rgb,0,212,170),0.12)' : 'transparent',
+        background: active ? 'var(--accent-dim)' : 'transparent',
         color: active ? 'var(--accent)' : 'var(--muted)',
-        border: active ? '1px solid rgba(var(--accent-rgb,0,212,170),0.3)' : '1px solid var(--border2)',
+        border: active ? '1px solid var(--border-accent)' : '1px solid var(--border2)',
         cursor: 'pointer',
       }}
     >
@@ -180,7 +180,7 @@ function AssetChart({ asset }: { asset: string }) {
   )
 
   return (
-    <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
+    <div style={{ background: 'var(--bg2)', border: '1px solid var(--border)', overflow: 'hidden', marginBottom: 16 }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', padding: '12px 18px', borderBottom: '1px solid var(--border)', gap: 12 }}>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{asset}</span>
@@ -210,11 +210,11 @@ function AssetChart({ asset }: { asset: string }) {
               key={t.id}
               onClick={() => setTf(t.id)}
               style={{
-                padding: '4px 10px', borderRadius: 4, fontSize: 11,
+                padding: '4px 10px', borderRadius: 0, fontSize: 11,
                 fontFamily: 'var(--font-mono)',
-                background: tf === t.id ? 'rgba(var(--accent-rgb,0,212,170),0.12)' : 'transparent',
+                background: tf === t.id ? 'var(--accent-dim)' : 'transparent',
                 color: tf === t.id ? 'var(--accent)' : 'var(--muted)',
-                border: tf === t.id ? '1px solid rgba(var(--accent-rgb,0,212,170),0.3)' : '1px solid transparent',
+                border: tf === t.id ? '1px solid var(--border-accent)' : '1px solid transparent',
               }}
             >
               {t.label}
@@ -266,9 +266,9 @@ function AssetChart({ asset }: { asset: string }) {
               <Line type="monotone" dataKey="ema21" stroke="var(--accent2)" strokeWidth={1} dot={false} strokeDasharray="4 2" connectNulls />
               {showBB && (
                 <>
-                  <Line dataKey="bbUpper" stroke="rgba(99,102,241,0.6)" strokeWidth={1} dot={false} strokeDasharray="3 2" connectNulls />
-                  <Line dataKey="bbLower" stroke="rgba(99,102,241,0.6)" strokeWidth={1} dot={false} strokeDasharray="3 2" connectNulls />
-                  <Line dataKey="bbMid"   stroke="rgba(99,102,241,0.3)" strokeWidth={1} dot={false} connectNulls />
+                  <Line dataKey="bbUpper" stroke="var(--accent2)" strokeWidth={1} dot={false} strokeDasharray="3 2" connectNulls strokeOpacity={0.6} />
+                  <Line dataKey="bbLower" stroke="var(--accent2)" strokeWidth={1} dot={false} strokeDasharray="3 2" connectNulls strokeOpacity={0.6} />
+                  <Line dataKey="bbMid"   stroke="var(--accent2)" strokeWidth={1} dot={false} connectNulls strokeOpacity={0.3} />
                 </>
               )}
               {last && <ReferenceLine y={last.close} stroke="var(--border2)" strokeDasharray="2 3" />}
@@ -302,7 +302,7 @@ function AssetChart({ asset }: { asset: string }) {
                 {data.map((entry, i) => (
                   <rect
                     key={i}
-                    fill={entry.isUp ? 'rgba(34,197,94,0.4)' : 'rgba(255,77,109,0.4)'}
+                    fill={entry.isUp ? 'rgba(200,255,0,0.3)' : 'rgba(217,79,61,0.3)'}
                   />
                 ))}
               </Bar>
@@ -325,7 +325,7 @@ function AssetChart({ asset }: { asset: string }) {
             </span>
             {showBB && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <span style={{ width: 16, height: 2, background: 'rgba(99,102,241,0.7)', display: 'inline-block', borderRadius: 1 }} />
+                <span style={{ width: 16, height: 2, background: 'var(--accent2)', display: 'inline-block', borderRadius: 0, opacity: 0.7 }} />
                 BB Bands
               </span>
             )}
